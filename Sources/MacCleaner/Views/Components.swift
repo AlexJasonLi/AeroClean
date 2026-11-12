@@ -178,7 +178,6 @@ struct ActionBar<Extra: View>: View {
     let checkedCount: Int
     let checkedBytes: Int64
     let removalItems: () -> [RemovalItem]
-    let onTrashed: @MainActor (Set<String>) -> Void
     @ViewBuilder var extra: Extra
 
     var body: some View {
@@ -209,7 +208,7 @@ struct ActionBar<Extra: View>: View {
             Spacer(minLength: 12)
             extra
             Button("Move to Trash…") {
-                app.requestRemoval(removalItems(), onDone: onTrashed)
+                app.requestRemoval(removalItems())
             }
             .buttonStyle(.borderedProminent)
             .keyboardShortcut(.delete, modifiers: .command)
@@ -222,11 +221,10 @@ struct ActionBar<Extra: View>: View {
 }
 
 extension ActionBar where Extra == EmptyView {
-    init(checkedCount: Int, checkedBytes: Int64, removalItems: @escaping () -> [RemovalItem], onTrashed: @escaping @MainActor (Set<String>) -> Void) {
+    init(checkedCount: Int, checkedBytes: Int64, removalItems: @escaping () -> [RemovalItem]) {
         self.checkedCount = checkedCount
         self.checkedBytes = checkedBytes
         self.removalItems = removalItems
-        self.onTrashed = onTrashed
         extra = EmptyView()
     }
 }

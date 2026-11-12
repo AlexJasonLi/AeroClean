@@ -36,8 +36,7 @@ struct SpaceView: View {
             ActionBar(
                 checkedCount: model.checked.count,
                 checkedBytes: model.checkedBytes,
-                removalItems: { model.checkedItems },
-                onTrashed: { model.didTrash($0) }
+                removalItems: { model.checkedItems }
             )
         }
         .navigationTitle("Space")
@@ -114,19 +113,15 @@ struct SpaceView: View {
         @Bindable var model = model
         let rows = model.rows
         return Table(rows, selection: $selection, sortOrder: $model.sortOrder) {
-            TableColumn("") { row in
-                CheckCell(
-                    isOn: Binding(
-                        get: { model.checked.contains(row.id) },
-                        set: { on in if on { model.checked.insert(row.id) } else { model.checked.remove(row.id) } }
-                    ),
-                    refusal: row.refusal
-                )
-            }
-            .width(20)
-
             TableColumn("Name", value: \.name) { row in
                 HStack(spacing: 6) {
+                    CheckCell(
+                        isOn: Binding(
+                            get: { model.checked.contains(row.id) },
+                            set: { on in if on { model.checked.insert(row.id) } else { model.checked.remove(row.id) } }
+                        ),
+                        refusal: row.refusal
+                    )
                     Icons.file(row.entry.url)
                     Text(row.name).lineLimit(1).truncationMode(.middle)
                     if row.entry.isCleanable {

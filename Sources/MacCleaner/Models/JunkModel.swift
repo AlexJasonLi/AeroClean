@@ -121,9 +121,11 @@ final class JunkModel {
         items.filter { checked.contains($0.id) }.map { RemovalItem(url: $0.url, bytes: $0.bytes ?? 0) }
     }
 
-    func didTrash(_ paths: Set<String>) {
-        items.removeAll { paths.contains($0.id) }
-        checked.subtract(paths)
+    func didTrash(_ moved: [TrashOutcome.Moved]) {
+        let paths = Set(moved.map { $0.original.standardizedFileURL.path })
+        guard !paths.isEmpty else { return }
+        items.removeAll { Trasher.covers(paths, $0.id) }
+        checked = checked.filter { !Trasher.covers(paths, $0) }
         rebuildRows()
     }
 }

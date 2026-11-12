@@ -27,6 +27,8 @@ final class LargeFilesModel {
 
     private let engine = LargeFileEngine()
     private var task: Task<Void, Never>?
+    /// bumped by every scan; results and state from an older scan are dropped.
+    private var generation = 0
 
     var rows: [LargeFileRow] {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
@@ -42,6 +44,8 @@ final class LargeFilesModel {
 
     func scan() {
         task?.cancel()
+        generation += 1
+        let current = generation
         files = []
         checked = []
         state = .scanning(nil)
@@ -51,27 +55,35 @@ final class LargeFilesModel {
             do {
                 _ = try await engine.scan(minimumBytes: minimum, includeLibrary: library) { file in
                     Task { @MainActor in
-                        guard self.state.isScanning else { return }
+                        guard current == self.generation else { return }
                         self.files.append(file)
                     }
                 }
                 // let the last appends land before marking the scan done.
                 await Task.yield()
+                guard current == generation else { return }
                 state = .done(Date())
             } catch {
+                guard current == generation else { return }
                 state = Task.isCancelled || error is CancellationError ? .done(Date()) : .failed(error.localizedDescription)
             }
         }
     }
 
-    func stop() { task?.cancel() }
+    func stop() {
+        task?.cancel()
+        generation += 1
+        if state.isScanning { state = .done(Date()) }
+    }
 
     var checkedItems: [RemovalItem] {
         files.filter { checked.contains($0.id) }.map { RemovalItem(url: $0.url, bytes: $0.bytes) }
     }
 
-    func didTrash(_ paths: Set<String>) {
-        files.removeAll { paths.contains($0.id) }
-        checked.subtract(paths)
+    func didTrash(_ moved: [TrashOutcome.Moved]) {
+        let paths = Set(moved.map { $0.original.standardizedFileURL.path })
+        guard !paths.isEmpty else { return }
+        files.removeAll { Trasher.covers(paths, $0.id) }
+        checked = checked.filter { !Trasher.covers(paths, $0) }
     }
 }

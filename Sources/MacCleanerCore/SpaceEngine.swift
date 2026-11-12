@@ -12,6 +12,16 @@ public struct SpaceEntry: Identifiable, Hashable, Sendable {
     /// the scan could not read everything inside, so the size is a lower bound.
     public let isPartial: Bool
     public let lastAccess: Date?
+
+    public init(url: URL, name: String, bytes: Int64, isDirectory: Bool, isCleanable: Bool, isPartial: Bool, lastAccess: Date?) {
+        self.url = url
+        self.name = name
+        self.bytes = bytes
+        self.isDirectory = isDirectory
+        self.isCleanable = isCleanable
+        self.isPartial = isPartial
+        self.lastAccess = lastAccess
+    }
 }
 
 public struct SpaceListing: Sendable {

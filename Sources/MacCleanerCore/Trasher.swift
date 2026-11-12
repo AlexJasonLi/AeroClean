@@ -4,10 +4,14 @@ public struct TrashRequest: Hashable, Sendable {
     public let url: URL
     /// size measured when the item was found, used for the freed-space total.
     public let bytes: Int64
+    /// for a duplicate: the other copies. at least one of them must still exist, with the
+    /// same size, and stay out of the trash, or this copy is kept.
+    public let survivors: [URL]
 
-    public init(url: URL, bytes: Int64) {
+    public init(url: URL, bytes: Int64, survivors: [URL] = []) {
         self.url = url
         self.bytes = bytes
+        self.survivors = survivors
     }
 }
 
@@ -29,7 +33,7 @@ public struct TrashOutcome: Sendable {
     public init() {}
 
     public var bytesMoved: Int64 { moved.reduce(0) { $0 + $1.bytes } }
-    public var movedPaths: Set<String> { Set(moved.map { $0.original.path }) }
+    public var movedPaths: Set<String> { Set(moved.map { $0.original.standardizedFileURL.path }) }
 }
 
 /// the only code that removes user files. every request is checked against the
@@ -48,29 +52,65 @@ public struct Trasher: Sendable {
     public static func collapse(_ requests: [TrashRequest]) -> [TrashRequest] {
         let byPath = Dictionary(requests.map { ($0.url.standardizedFileURL.path, $0) }, uniquingKeysWith: { a, _ in a })
         let paths = Set(byPath.keys)
-        let kept = byPath.keys.sorted().filter { path in
-            var ancestor = (path as NSString).deletingLastPathComponent
-            while ancestor.count > 1 {
-                if paths.contains(ancestor) { return false }
-                ancestor = (ancestor as NSString).deletingLastPathComponent
-            }
-            return true
-        }
-        return kept.compactMap { byPath[$0] }
+        return byPath.keys.sorted()
+            .filter { !isInside($0, anyOf: paths) }
+            .compactMap { byPath[$0] }
     }
 
-    /// checks without touching the disk beyond existence.
-    public func preflight(_ request: TrashRequest) -> String? {
+    /// true when `path` is one of `paths` or sits inside one of them.
+    public static func covers(_ paths: Set<String>, _ path: String) -> Bool {
+        paths.contains(path) || isInside(path, anyOf: paths)
+    }
+
+    private static func isInside(_ path: String, anyOf paths: Set<String>) -> Bool {
+        var ancestor = (path as NSString).deletingLastPathComponent
+        while ancestor.count > 1 {
+            if paths.contains(ancestor) { return true }
+            ancestor = (ancestor as NSString).deletingLastPathComponent
+        }
+        return false
+    }
+
+    /// every check short of moving the item. `leaving` holds paths already moved or about
+    /// to be moved in this batch, which do not count as surviving copies.
+    public func preflight(_ request: TrashRequest, leaving: Set<String> = []) -> String? {
         if case .refused(let reason) = policy.verdict(for: request.url) { return reason }
         // attributesOfItem does not follow a final symlink, so a dangling link still counts.
-        let exists = (try? FileManager.default.attributesOfItem(atPath: request.url.path)) != nil
-        return exists ? nil : "No longer exists"
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: request.url.path) else {
+            return "No longer exists"
+        }
+        if attributes[.type] as? FileAttributeType == .typeDirectory {
+            let report = FolderInspector.inspect(request.url)
+            if let library = report.mediaLibraries.first {
+                return "Holds a media library (\(library)), manage it in its own app"
+            }
+        }
+        if !request.survivors.isEmpty, !hasSurvivor(request, leaving: leaving) {
+            return "Its other copies are gone, so this one was kept"
+        }
+        return nil
     }
 
-    public func trash(_ requests: [TrashRequest]) -> TrashOutcome {
+    private func hasSurvivor(_ request: TrashRequest, leaving: Set<String>) -> Bool {
+        request.survivors.contains { survivor in
+            let path = survivor.standardizedFileURL.path
+            guard !Self.covers(leaving, path),
+                  let attributes = try? FileManager.default.attributesOfItem(atPath: path),
+                  attributes[.type] as? FileAttributeType == .typeRegular,
+                  (attributes[.size] as? NSNumber)?.int64Value == request.bytes
+            else { return false }
+            return true
+        }
+    }
+
+    /// `progress` gets (finished, total) after each item.
+    public func trash(_ requests: [TrashRequest], progress: (@Sendable (Int, Int) -> Void)? = nil) -> TrashOutcome {
         var outcome = TrashOutcome()
-        for request in Self.collapse(requests) {
-            if let reason = preflight(request) {
+        let batch = Self.collapse(requests)
+        let leaving = Set(batch.map { $0.url.standardizedFileURL.path })
+        for (index, request) in batch.enumerated() {
+            defer { progress?(index + 1, batch.count) }
+            if let reason = preflight(request, leaving: leaving) {
                 outcome.failed.append(.init(url: request.url, reason: reason))
                 continue
             }

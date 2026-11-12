@@ -35,8 +35,7 @@ struct LargeFilesView: View {
             ActionBar(
                 checkedCount: model.checked.count,
                 checkedBytes: model.checkedBytes,
-                removalItems: { model.checkedItems },
-                onTrashed: { model.didTrash($0) }
+                removalItems: { model.checkedItems }
             )
         }
         .navigationTitle("Large Files")
@@ -90,16 +89,12 @@ struct LargeFilesView: View {
     private func table(_ rows: [LargeFileRow], _ model: LargeFilesModel) -> some View {
         @Bindable var model = model
         return Table(rows, selection: $selection, sortOrder: $model.sortOrder) {
-            TableColumn("") { row in
-                CheckCell(isOn: Binding(
-                    get: { model.checked.contains(row.id) },
-                    set: { on in if on { model.checked.insert(row.id) } else { model.checked.remove(row.id) } }
-                ))
-            }
-            .width(20)
-
             TableColumn("Name", value: \.name) { row in
                 HStack(spacing: 6) {
+                    CheckCell(isOn: Binding(
+                        get: { model.checked.contains(row.id) },
+                        set: { on in if on { model.checked.insert(row.id) } else { model.checked.remove(row.id) } }
+                    ))
                     Icons.file(row.file.url)
                     Text(row.name).lineLimit(1).truncationMode(.middle)
                 }

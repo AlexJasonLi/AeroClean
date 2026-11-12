@@ -32,6 +32,7 @@ final class DuplicatesModel {
 
     private let engine = DuplicateEngine()
     private var task: Task<Void, Never>?
+    private var generation = 0
 
     var totalRedundantBytes: Int64? { groups.isEmpty ? nil : groups.reduce(0) { $0 + $1.redundantBytes } }
 
@@ -78,21 +79,29 @@ final class DuplicatesModel {
 
     func scan() {
         task?.cancel()
+        generation += 1
+        let current = generation
         state = .scanning(nil)
         let minimum = minimumBytes
         task = Task {
             do {
                 let found = try await engine.scan(minimumBytes: minimum)
+                guard current == generation else { return }
                 groups = found
                 checked = []
                 state = .done(Date())
             } catch {
+                guard current == generation else { return }
                 state = Task.isCancelled || error is CancellationError ? .idle : .failed(error.localizedDescription)
             }
         }
     }
 
-    func stop() { task?.cancel() }
+    func stop() {
+        task?.cancel()
+        generation += 1
+        if state.isScanning { state = groups.isEmpty ? .idle : .done(Date()) }
+    }
 
     /// a copy can be checked unless it is the last unchecked copy of its group.
     func canCheck(_ copyID: String, in groupID: String) -> Bool {
@@ -125,16 +134,20 @@ final class DuplicatesModel {
         groups.flatMap { group -> [RemovalItem] in
             let picked = group.copies.filter { checked.contains($0.id) }
             guard picked.count < group.copies.count else { return [] }
-            return picked.map { RemovalItem(url: $0.url, bytes: group.bytes) }
+            return picked.map { copy in
+                RemovalItem(url: copy.url, bytes: group.bytes, survivors: group.copies.filter { $0.id != copy.id }.map(\.url))
+            }
         }
     }
 
-    func didTrash(_ paths: Set<String>) {
+    func didTrash(_ moved: [TrashOutcome.Moved]) {
+        let paths = Set(moved.map { $0.original.standardizedFileURL.path })
+        guard !paths.isEmpty else { return }
         groups = groups.compactMap { group in
-            let left = group.copies.filter { !paths.contains($0.id) }
+            let left = group.copies.filter { !Trasher.covers(paths, $0.id) }
             guard left.count > 1 else { return nil }
             return DuplicateGroup(hash: group.hash, bytes: group.bytes, copies: left)
         }
-        checked.subtract(paths)
+        checked = checked.filter { !Trasher.covers(paths, $0) }
     }
 }

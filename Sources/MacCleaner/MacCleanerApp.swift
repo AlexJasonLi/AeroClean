@@ -1,4 +1,5 @@
 import AppKit
+import MacCleanerCore
 import SwiftUI
 
 @main
@@ -37,4 +38,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+
+    /// mole, fd and fclones run in their own process groups; stop them with the app.
+    func applicationWillTerminate(_ notification: Notification) {
+        ProcessRunner.terminateAll()
+    }
 }

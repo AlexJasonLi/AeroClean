@@ -31,8 +31,8 @@ struct RootView: View {
                 SetupView()
             }
         }
-        .sheet(item: $app.pendingRemoval) { pending in
-            RemovalSheet(pending: pending)
+        .sheet(item: $app.pendingRemoval) { _ in
+            RemovalSheet()
         }
         .sheet(isPresented: $app.showingFailures) {
             FailuresSheet()
@@ -59,7 +59,7 @@ struct RootView: View {
 
     private var emptyTrashMessage: String {
         let tail = "Everything in it is deleted for good. This cannot be undone."
-        if let bytes = app.trashBytes { return "This frees \(Format.bytes(bytes)). " + tail }
+        if let bytes = app.trashBytes { return "This frees at least \(Format.bytes(bytes)). " + tail }
         if app.movedThisSession > 0 {
             return "It holds the \(Format.bytes(app.movedThisSession)) MacCleaner moved there, plus anything else you put in it. " + tail
         }
@@ -133,11 +133,14 @@ struct StorageFooter: View {
 
 struct RemovalSheet: View {
     @Environment(AppModel.self) private var app
-    let pending: PendingRemoval
 
     var body: some View {
+        if let pending = app.pendingRemoval { content(pending) }
+    }
+
+    private func content(_ pending: PendingRemoval) -> some View {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
-        VStack(alignment: .leading, spacing: 16) {
+        return VStack(alignment: .leading, spacing: 16) {
             HStack(alignment: .top, spacing: 14) {
                 Image(systemName: "trash")
                     .font(.system(size: 26, weight: .light))
@@ -170,16 +173,29 @@ struct RemovalSheet: View {
             }
             .listStyle(.bordered)
             .frame(height: min(CGFloat(pending.items.count) * 38 + 8, 280))
+            if let git = pending.foldersWithGit, git > 0 {
+                Label(
+                    git == 1
+                        ? "One of these folders holds a git repository. Its history goes to the Trash with it."
+                        : "\(git) of these folders hold git repositories. Their history goes to the Trash with them.",
+                    systemImage: "exclamationmark.triangle"
+                )
+                .font(.callout)
+                .foregroundStyle(.secondary)
+            }
             HStack {
-                if app.isRemoving {
-                    ProgressView().controlSize(.small)
-                    Text("Moving to the Trash…").foregroundStyle(.secondary)
+                if let progress = app.removalProgress {
+                    ProgressView(value: Double(progress.done), total: Double(max(progress.total, 1)))
+                        .frame(width: 120)
+                    Text("\(Format.count(progress.done)) of \(Format.count(progress.total))")
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
                 }
                 Spacer()
                 Button("Cancel") { app.pendingRemoval = nil }
                     .keyboardShortcut(.cancelAction)
                     .disabled(app.isRemoving)
-                Button("Move to Trash") { Task { await app.confirmRemoval() } }
+                Button("Move to Trash") { app.confirmRemoval() }
                     .keyboardShortcut(.defaultAction)
                     .disabled(app.isRemoving)
             }

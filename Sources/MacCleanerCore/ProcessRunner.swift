@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 /// the open-source command line tools MacCleaner runs. all come from homebrew.
@@ -48,53 +49,34 @@ public enum ProcessRunner {
         public let stderr: String
     }
 
-    /// runs a tool to completion. `onRecord` gets each stdout record split on `delimiter`
-    /// as it arrives. cancelling the task terminates the process.
+    /// runs a tool to completion in its own process group. `onRecord` gets each stdout
+    /// record split on `delimiter` as it arrives. cancelling the task stops the tool and
+    /// every helper it started.
     public static func run(
         _ executable: URL,
         _ arguments: [String],
         delimiter: UInt8 = UInt8(ascii: "\n"),
         onRecord: (@Sendable (String) -> Void)? = nil
     ) async throws -> Result {
-        let process = Process()
-        process.executableURL = executable
-        process.arguments = arguments
-        process.environment = environment
-        process.standardInput = FileHandle.nullDevice
-        let out = Pipe()
-        let err = Pipe()
-        process.standardOutput = out
-        process.standardError = err
-
-        let collected = StreamCollector(delimiter: delimiter, onRecord: onRecord)
-        let errors = StreamCollector(delimiter: delimiter, onRecord: nil)
-        out.fileHandleForReading.readabilityHandler = { handle in collected.append(handle.availableData) }
-        err.fileHandleForReading.readabilityHandler = { handle in errors.append(handle.availableData) }
-
+        let job = Job(delimiter: delimiter, onRecord: onRecord)
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Result, Error>) in
-                process.terminationHandler = { finished in
-                    out.fileHandleForReading.readabilityHandler = nil
-                    err.fileHandleForReading.readabilityHandler = nil
-                    collected.append(out.fileHandleForReading.readDataToEndOfFile())
-                    errors.append(err.fileHandleForReading.readDataToEndOfFile())
-                    collected.finish()
-                    continuation.resume(returning: Result(
-                        status: finished.terminationStatus,
-                        stdout: collected.data,
-                        stderr: String(decoding: errors.data, as: UTF8.self)
-                    ))
-                }
                 do {
-                    try process.run()
+                    try job.start(executable: executable, arguments: arguments, environment: environment) {
+                        continuation.resume(returning: $0)
+                    }
                 } catch {
-                    process.terminationHandler = nil
                     continuation.resume(throwing: error)
                 }
             }
         } onCancel: {
-            if process.isRunning { process.terminate() }
+            job.cancel()
         }
+    }
+
+    /// stops every tool still running, e.g. when the app quits.
+    public static func terminateAll() {
+        Job.registry.terminateAll()
     }
 
     /// gui apps start with a bare PATH; the tools and the helpers mole calls live in homebrew.
@@ -109,7 +91,159 @@ public enum ProcessRunner {
     }
 }
 
+/// one spawned tool. its pid is also its process group id, so signals reach the helpers
+/// it forks, including ones that outlive it while still holding its output pipes.
+final class Job: @unchecked Sendable {
+    static let registry = Registry()
+
+    private let lock = NSLock()
+    private var pid: pid_t = 0
+    private var cancelled = false
+    private var completed = false
+    private let out: StreamCollector
+    private let err: StreamCollector
+
+    init(delimiter: UInt8, onRecord: (@Sendable (String) -> Void)?) {
+        out = StreamCollector(delimiter: delimiter, onRecord: onRecord)
+        err = StreamCollector(delimiter: delimiter, onRecord: nil)
+    }
+
+    func start(
+        executable: URL,
+        arguments: [String],
+        environment: [String: String],
+        completion: @escaping @Sendable (ProcessRunner.Result) -> Void
+    ) throws {
+        var outPipe: [Int32] = [-1, -1]
+        var errPipe: [Int32] = [-1, -1]
+        guard pipe(&outPipe) == 0 else { throw POSIXError(.init(rawValue: errno) ?? .EIO) }
+        guard pipe(&errPipe) == 0 else {
+            close(outPipe[0]); close(outPipe[1])
+            throw POSIXError(.init(rawValue: errno) ?? .EIO)
+        }
+
+        var actions: posix_spawn_file_actions_t?
+        posix_spawn_file_actions_init(&actions)
+        defer { posix_spawn_file_actions_destroy(&actions) }
+        posix_spawn_file_actions_addopen(&actions, 0, "/dev/null", O_RDONLY, 0)
+        posix_spawn_file_actions_adddup2(&actions, outPipe[1], 1)
+        posix_spawn_file_actions_adddup2(&actions, errPipe[1], 2)
+
+        var attributes: posix_spawnattr_t?
+        posix_spawnattr_init(&attributes)
+        defer { posix_spawnattr_destroy(&attributes) }
+        // own process group; close every other inherited descriptor; reset signal handling.
+        let flags = POSIX_SPAWN_SETPGROUP | POSIX_SPAWN_CLOEXEC_DEFAULT | POSIX_SPAWN_SETSIGDEF | POSIX_SPAWN_SETSIGMASK
+        posix_spawnattr_setflags(&attributes, Int16(flags))
+        posix_spawnattr_setpgroup(&attributes, 0)
+        var defaults = sigset_t()
+        sigemptyset(&defaults)
+        for signal in [SIGPIPE, SIGTERM, SIGINT, SIGHUP, SIGQUIT, SIGCHLD] { sigaddset(&defaults, signal) }
+        posix_spawnattr_setsigdefault(&attributes, &defaults)
+        var unblocked = sigset_t()
+        sigemptyset(&unblocked)
+        posix_spawnattr_setsigmask(&attributes, &unblocked)
+
+        let argv: [UnsafeMutablePointer<CChar>?] = ([executable.path] + arguments).map { strdup($0) } + [nil]
+        let envp: [UnsafeMutablePointer<CChar>?] = environment.map { strdup("\($0.key)=\($0.value)") } + [nil]
+        defer {
+            argv.forEach { free($0) }
+            envp.forEach { free($0) }
+        }
+
+        var child: pid_t = 0
+        let spawned = posix_spawn(&child, executable.path, &actions, &attributes, argv, envp)
+        close(outPipe[1])
+        close(errPipe[1])
+        guard spawned == 0 else {
+            close(outPipe[0]); close(errPipe[0])
+            throw POSIXError(.init(rawValue: spawned) ?? .EIO)
+        }
+
+        let leader = child
+        Self.registry.add(leader)
+        let cancelledEarly = lock.withLock { () -> Bool in
+            pid = leader
+            return cancelled
+        }
+        if cancelledEarly { signalGroup(leader) }
+
+        let readers = DispatchGroup()
+        for (fd, collector) in [(outPipe[0], out), (errPipe[0], err)] {
+            readers.enter()
+            DispatchQueue.global(qos: .utility).async {
+                var buffer = [UInt8](repeating: 0, count: 65_536)
+                while true {
+                    let count = read(fd, &buffer, buffer.count)
+                    if count > 0 {
+                        collector.append(Data(buffer[0..<count]))
+                    } else if count < 0, errno == EINTR {
+                        continue
+                    } else {
+                        break
+                    }
+                }
+                close(fd)
+                readers.leave()
+            }
+        }
+
+        DispatchQueue.global(qos: .utility).async { [self] in
+            var status: Int32 = 0
+            while waitpid(leader, &status, 0) == -1, errno == EINTR {}
+            // helpers that outlived the tool can keep its pipes open; give them a moment.
+            if readers.wait(timeout: .now() + 2) == .timedOut {
+                kill(-leader, SIGKILL)
+                readers.wait()
+            }
+            lock.withLock { completed = true }
+            Self.registry.remove(leader)
+            out.finish()
+            let exited = (status & 0x7F) == 0
+            let code = exited ? (status >> 8) & 0xFF : 128 + (status & 0x7F)
+            completion(ProcessRunner.Result(
+                status: code,
+                stdout: out.data,
+                stderr: String(decoding: err.data, as: UTF8.self)
+            ))
+        }
+    }
+
+    func cancel() {
+        let target: pid_t? = lock.withLock {
+            cancelled = true
+            return pid > 0 && !completed ? pid : nil
+        }
+        if let target { signalGroup(target) }
+    }
+
+    /// polite stop, then a hard one if the group is still around.
+    private func signalGroup(_ group: pid_t) {
+        kill(-group, SIGTERM)
+        DispatchQueue.global().asyncAfter(deadline: .now() + 3) { [self] in
+            if lock.withLock({ !completed }) { kill(-group, SIGKILL) }
+        }
+    }
+
+    final class Registry: @unchecked Sendable {
+        private let lock = NSLock()
+        private var groups: Set<pid_t> = []
+
+        func add(_ group: pid_t) { lock.withLock { _ = groups.insert(group) } }
+        func remove(_ group: pid_t) { lock.withLock { _ = groups.remove(group) } }
+
+        func terminateAll() {
+            let live = lock.withLock { groups }
+            guard !live.isEmpty else { return }
+            live.forEach { kill(-$0, SIGTERM) }
+            usleep(300_000)
+            live.forEach { kill(-$0, SIGKILL) }
+        }
+    }
+}
+
 /// thread-safe buffer for a pipe that also splits records as they arrive.
+/// each pipe has exactly one reader, so chunks arrive in order.
 final class StreamCollector: @unchecked Sendable {
     private let lock = NSLock()
     private var buffer = Data()

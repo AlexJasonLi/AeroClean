@@ -25,6 +25,7 @@ public enum TrashService {
         FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".Trash")
     }
 
+    /// size of the trash on this disk. the finder also empties trashes on other volumes.
     /// nil when macOS does not let the app read the trash (needs full disk access).
     public static func size() -> Int64? {
         let manager = FileManager.default
@@ -44,7 +45,9 @@ public enum TrashService {
     /// the first time, macOS asks whether MacCleaner may control the finder.
     public static func empty() async throws {
         let osascript = URL(fileURLWithPath: "/usr/bin/osascript")
-        let result = try await ProcessRunner.run(osascript, ["-e", "tell application \"Finder\" to empty trash"])
+        // the default apple event timeout is two minutes; a big trash takes longer.
+        let script = "with timeout of 3600 seconds\ntell application \"Finder\" to empty trash\nend timeout"
+        let result = try await ProcessRunner.run(osascript, ["-e", script])
         guard result.status == 0 else {
             if result.stderr.contains("-1743") {
                 throw EmptyTrashError.notAllowed

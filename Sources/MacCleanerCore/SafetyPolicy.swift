@@ -20,12 +20,19 @@ public struct SafetyPolicy: Sendable {
     // top-level folders of the home folder that are never removed as a whole.
     static let protectedTopLevel: Set<String> = [
         "Applications", "Desktop", "Documents", "Downloads", "Library", "Movies",
-        "Music", "Pictures", "Public", "Sites", ".Trash",
-        ".config", ".local", ".ssh", ".gnupg", ".aws", ".kube", ".docker",
+        "Music", "Pictures", "Public", "Sites", ".Trash", ".config", ".local",
     ]
 
-    // top-level folders whose contents are never touched: credentials and the trash itself.
-    static let sealedTopLevel: Set<String> = [".Trash", ".ssh", ".gnupg", ".aws", ".kube"]
+    // top-level folders whose contents are never touched: the trash itself.
+    static let sealedTopLevel: Set<String> = [".Trash"]
+
+    // credentials, by path relative to the home folder. neither these nor anything inside them.
+    static let credentialPaths: [String] = [
+        ".ssh", ".gnupg", ".aws", ".kube", ".azure", ".docker", ".password-store",
+        ".netrc", ".git-credentials", ".npmrc", ".pypirc", ".gem/credentials",
+        ".config/gh", ".config/gcloud/credentials.db", ".config/gcloud/access_tokens.db",
+        ".config/gcloud/legacy_credentials", ".config/gcloud/application_default_credentials.json",
+    ]
 
     // folders under ~/Library whose contents are never touched: removal there loses
     // data that is not a cache, or syncs the removal to other devices.
@@ -37,7 +44,8 @@ public struct SafetyPolicy: Sendable {
     // packages managed by their apps. never removed, and nothing inside them is.
     static let mediaLibraryExtensions: Set<String> = [
         "photoslibrary", "photolibrary", "migratedphotolibrary", "aplibrary",
-        "musiclibrary", "tvlibrary", "imovielibrary", "fcpbundle", "logicx",
+        "musiclibrary", "tvlibrary", "imovielibrary", "fcpbundle", "logicx", "band",
+        "lrcat", "lrcat-data", "lrdata", "lrlibrary", "cocatalog",
     ]
 
     // code bundles whose insides are never removed piece by piece. cache folders are often
@@ -61,7 +69,11 @@ public struct SafetyPolicy: Sendable {
             return .refused("Standard folder, remove what is inside it instead")
         }
         if Self.sealedTopLevel.contains(first) {
-            return first == ".Trash" ? .refused("Already in the Trash") : .refused("Holds credentials")
+            return .refused("Already in the Trash")
+        }
+        let relativePath = parts.joined(separator: "/")
+        if Self.credentialPaths.contains(where: { relativePath == $0 || relativePath.hasPrefix($0 + "/") }) {
+            return .refused("Holds credentials")
         }
         if first == "Library" {
             if parts.count == 2 {

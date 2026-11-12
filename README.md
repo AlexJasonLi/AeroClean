@@ -32,9 +32,10 @@ Things MacCleaner refuses to remove, whatever a scanner reports (`Sources/MacCle
 
 - anything outside your home folder, the home folder itself and its standard folders (Desktop, Documents, Downloads, Library and so on)
 - `~/Library/<folder>` itself, keychains, iCloud Drive, CloudStorage (Dropbox, Google Drive), Mail, Messages, Safari data
-- `.ssh`, `.gnupg`, `.aws`, `.kube`, `.git` folders
-- Photos, Music, TV, iMovie, Final Cut and Logic libraries, and anything inside an app bundle
-- the last copy of a duplicated file
+- `.ssh`, `.gnupg`, `.aws`, `.kube` and `.git` folders (a whole project folder can go; the confirmation says when it holds git history)
+- `.netrc`, `.git-credentials`, `.docker`, `.config/gh` and other credential files
+- Photos, Music, TV, iMovie, Final Cut, Logic, GarageBand, Lightroom and Capture One libraries, folders that hold one, and anything inside an app bundle
+- the last copy of a duplicated file, checked again at removal time
 
 ## Permissions
 

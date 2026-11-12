@@ -7,14 +7,17 @@ struct RemovalItem: Identifiable, Hashable {
     var id: String { url.path }
     let url: URL
     let bytes: Int64
+    /// for a duplicate, its other copies; one must still be on disk when it is removed.
+    var survivors: [URL] = []
 
-    var request: TrashRequest { TrashRequest(url: url, bytes: bytes) }
+    var request: TrashRequest { TrashRequest(url: url, bytes: bytes, survivors: survivors) }
 }
 
 struct PendingRemoval: Identifiable {
     let id = UUID()
     let items: [RemovalItem]
-    let onDone: @MainActor (Set<String>) -> Void
+    /// how many checked folders hold git repositories; nil while still looking.
+    var foldersWithGit: Int?
 
     var totalBytes: Int64 { items.reduce(0) { $0 + $1.bytes } }
 }
@@ -62,6 +65,7 @@ final class AppModel {
 
     var pendingRemoval: PendingRemoval?
     var isRemoving = false
+    var removalProgress: (done: Int, total: Int)?
     var lastOutcome: TrashOutcome?
     var showingFailures = false
 
@@ -93,24 +97,50 @@ final class AppModel {
         }
     }
 
-    func requestRemoval(_ items: [RemovalItem], onDone: @escaping @MainActor (Set<String>) -> Void) {
-        guard !items.isEmpty else { return }
-        pendingRemoval = PendingRemoval(items: items, onDone: onDone)
+    func requestRemoval(_ items: [RemovalItem]) {
+        guard !items.isEmpty, !isRemoving else { return }
+        let pending = PendingRemoval(items: items, foldersWithGit: nil)
+        pendingRemoval = pending
+        // a whole project folder can go, but say so when it carries git history.
+        let folders = items.count <= 200 ? items.map(\.url) : []
+        Task {
+            let count = await Task.detached(priority: .userInitiated) {
+                folders.filter { url in
+                    (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true
+                        && FolderInspector.inspect(url, limit: 5_000).gitRepositories > 0
+                }.count
+            }.value
+            if pendingRemoval?.id == pending.id { pendingRemoval?.foldersWithGit = count }
+        }
     }
 
-    func confirmRemoval() async {
-        guard let pending = pendingRemoval else { return }
+    func confirmRemoval() {
+        guard let pending = pendingRemoval, !isRemoving else { return }
         isRemoving = true
+        removalProgress = (0, pending.items.count)
         let trasher = trasher
         let requests = pending.items.map(\.request)
-        let outcome = await Task.detached(priority: .userInitiated) { trasher.trash(requests) }.value
-        isRemoving = false
-        pendingRemoval = nil
-        movedThisSession += outcome.bytesMoved
-        lastOutcome = outcome
-        showingFailures = !outcome.failed.isEmpty
-        pending.onDone(outcome.movedPaths)
-        refreshStorage()
+        Task {
+            let outcome = await Task.detached(priority: .userInitiated) {
+                trasher.trash(requests) { done, total in
+                    Task { @MainActor in
+                        if self.isRemoving { self.removalProgress = (done, total) }
+                    }
+                }
+            }.value
+            isRemoving = false
+            removalProgress = nil
+            pendingRemoval = nil
+            movedThisSession += outcome.bytesMoved
+            lastOutcome = outcome
+            showingFailures = !outcome.failed.isEmpty
+            // every pane drops what moved, so no list keeps a file that is already in the trash.
+            junk.didTrash(outcome.moved)
+            largeFiles.didTrash(outcome.moved)
+            duplicates.didTrash(outcome.moved)
+            space.didTrash(outcome.moved)
+            refreshStorage()
+        }
     }
 
     func emptyTrash() async {

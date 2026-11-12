@@ -26,6 +26,7 @@ final class SpaceModel {
     private let engine = SpaceEngine()
     private let policy = SafetyPolicy()
     private var task: Task<Void, Never>?
+    private var generation = 0
 
     init() {
         folder = FileManager.default.homeDirectoryForCurrentUser
@@ -67,30 +68,51 @@ final class SpaceModel {
         listing = nil
         state = .scanning(Format.location(folder, home: home.path))
         let target = folder
+        generation += 1
+        let current = generation
         task = Task {
             do {
                 let result = try await engine.list(target)
-                guard target == folder else { return }
+                guard current == generation else { return }
                 listing = result
                 state = .done(Date())
             } catch {
-                guard target == folder else { return }
+                guard current == generation else { return }
                 state = Task.isCancelled || error is CancellationError ? .idle : .failed(error.localizedDescription)
             }
         }
     }
 
-    func stop() { task?.cancel() }
+    func stop() {
+        task?.cancel()
+        generation += 1
+        if state.isScanning { state = .idle }
+    }
 
     var checkedItems: [RemovalItem] {
         listing?.entries.filter { checked.contains($0.id) }.map { RemovalItem(url: $0.url, bytes: $0.bytes) } ?? []
     }
 
-    func didTrash(_ paths: Set<String>) {
-        guard let current = listing else { return }
-        let left = current.entries.filter { !paths.contains($0.id) }
-        let removed = current.entries.filter { paths.contains($0.id) }.reduce(0) { $0 + $1.bytes }
-        listing = SpaceListing(url: current.url, entries: left, totalBytes: current.totalBytes - removed, isPartial: current.isPartial)
-        checked.subtract(paths)
+    /// drops removed entries, and takes removed files inside an entry off that entry's size.
+    func didTrash(_ moved: [TrashOutcome.Moved]) {
+        guard let current = listing, !moved.isEmpty else { return }
+        let paths = Set(moved.map { $0.original.standardizedFileURL.path })
+        var removedBytes: Int64 = 0
+        var entries: [SpaceEntry] = []
+        for entry in current.entries {
+            if Trasher.covers(paths, entry.id) {
+                removedBytes += entry.bytes
+                continue
+            }
+            let inside = moved.filter { $0.original.standardizedFileURL.path.hasPrefix(entry.id + "/") }
+            let shrink = inside.reduce(0) { $0 + $1.bytes }
+            removedBytes += shrink
+            entries.append(shrink == 0 ? entry : SpaceEntry(
+                url: entry.url, name: entry.name, bytes: max(entry.bytes - shrink, 0), isDirectory: entry.isDirectory,
+                isCleanable: entry.isCleanable, isPartial: entry.isPartial, lastAccess: entry.lastAccess
+            ))
+        }
+        listing = SpaceListing(url: current.url, entries: entries, totalBytes: max(current.totalBytes - removedBytes, 0), isPartial: current.isPartial)
+        checked = checked.filter { !Trasher.covers(paths, $0) }
     }
 }

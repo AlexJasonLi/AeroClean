@@ -19,8 +19,7 @@ struct JunkView: View {
             ActionBar(
                 checkedCount: model.checked.count,
                 checkedBytes: model.checkedBytes,
-                removalItems: { model.checkedItems },
-                onTrashed: { model.didTrash($0) }
+                removalItems: { model.checkedItems }
             ) {
                 if !model.items.isEmpty {
                     Button(model.checked.isEmpty ? "Check All" : "Uncheck All") {
@@ -82,13 +81,9 @@ struct JunkView: View {
     private func table(_ model: JunkModel) -> some View {
         @Bindable var model = model
         return Table(model.rows, children: \.children, selection: $selection, sortOrder: $model.sortOrder) {
-            TableColumn("") { row in
-                check(row, model)
-            }
-            .width(20)
-
             TableColumn("Name", value: \.name) { row in
                 HStack(spacing: 6) {
+                    check(row, model)
                     if row.isGroup {
                         Icons.owner(row.name, fallback: row.children?.first?.url?.deletingLastPathComponent())
                     } else if let url = row.url {

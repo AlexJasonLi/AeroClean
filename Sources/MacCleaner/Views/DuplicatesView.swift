@@ -35,8 +35,7 @@ struct DuplicatesView: View {
             ActionBar(
                 checkedCount: model.checked.count,
                 checkedBytes: model.checkedBytes,
-                removalItems: { model.checkedItems },
-                onTrashed: { model.didTrash($0) }
+                removalItems: { model.checkedItems }
             ) {
                 if !model.groups.isEmpty {
                     Button("Check Extra Copies") { model.checkExtraCopies() }
@@ -93,23 +92,19 @@ struct DuplicatesView: View {
     private func table(_ model: DuplicatesModel) -> some View {
         @Bindable var model = model
         return Table(model.rows, children: \.children, selection: $selection, sortOrder: $model.sortOrder) {
-            TableColumn("") { row in
-                if !row.isGroup {
-                    let allowed = model.canCheck(row.id, in: row.groupID)
-                    Toggle("", isOn: Binding(
-                        get: { model.checked.contains(row.id) },
-                        set: { model.setChecked(row.id, in: row.groupID, $0) }
-                    ))
-                    .toggleStyle(.checkbox)
-                    .labelsHidden()
-                    .disabled(!allowed)
-                    .help(allowed ? "" : "Keep at least one copy")
-                }
-            }
-            .width(20)
-
             TableColumn("Name", value: \.name) { row in
                 HStack(spacing: 6) {
+                    if !row.isGroup {
+                        let allowed = model.canCheck(row.id, in: row.groupID)
+                        Toggle("", isOn: Binding(
+                            get: { model.checked.contains(row.id) },
+                            set: { model.setChecked(row.id, in: row.groupID, $0) }
+                        ))
+                        .toggleStyle(.checkbox)
+                        .labelsHidden()
+                        .disabled(!allowed)
+                        .help(allowed ? "" : "Keep at least one copy")
+                    }
                     if let url = row.url { Icons.file(url) }
                     Text(row.name)
                         .fontWeight(row.isGroup ? .medium : .regular)
