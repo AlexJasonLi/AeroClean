@@ -14,6 +14,12 @@ public struct DuplicateGroup: Identifiable, Hashable, Sendable {
     public let bytes: Int64
     public let copies: [Copy]
 
+    public init(hash: String, bytes: Int64, copies: [Copy]) {
+        self.hash = hash
+        self.bytes = bytes
+        self.copies = copies
+    }
+
     /// space freed by keeping one copy.
     public var redundantBytes: Int64 { bytes * Int64(max(copies.count - 1, 0)) }
 
@@ -41,10 +47,12 @@ public struct DuplicateEngine: Sendable {
     public func scan(minimumBytes: Int64) async throws -> [DuplicateGroup] {
         guard let fclones = Tool.fclones.location else { throw MissingTool(tool: .fclones) }
         var arguments = ["-q", "group", home.path, "--min", "\(minimumBytes)B", "--format", "json"]
-        // fclones skips hidden files and honours .gitignore by default, which keeps
-        // dependency folders and tool caches out. app data in ~/Library is left alone too.
+        // fclones skips hidden files and honours .gitignore by default. app data in ~/Library
+        // and dependency folders are left out too: identical copies there are expected, and
+        // removing one breaks the project that installed it.
         let excluded = ["Library", ".Trash"].map { home.appendingPathComponent($0).path + "/**" }
             + SafetyPolicy.mediaLibraryExtensions.map { "**/*.\($0)/**" }
+            + Self.dependencyFolders.map { "**/\($0)/**" }
         for pattern in excluded { arguments += ["--exclude", pattern] }
 
         let result = try await ProcessRunner.run(fclones, arguments)
@@ -54,6 +62,11 @@ public struct DuplicateEngine: Sendable {
         }
         return try Self.decode(result.stdout, policy: policy)
     }
+
+    static let dependencyFolders = [
+        "node_modules", "app.asar.unpacked", ".venv", "venv", "site-packages", "Pods",
+        ".build", "DerivedData", ".next", ".gradle",
+    ]
 
     static func decode(_ data: Data, policy: SafetyPolicy) throws -> [DuplicateGroup] {
         struct Output: Decodable { let groups: [Group] }

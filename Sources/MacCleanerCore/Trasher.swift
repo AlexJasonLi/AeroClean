@@ -26,6 +26,8 @@ public struct TrashOutcome: Sendable {
     public var moved: [Moved] = []
     public var failed: [Failed] = []
 
+    public init() {}
+
     public var bytesMoved: Int64 { moved.reduce(0) { $0 + $1.bytes } }
     public var movedPaths: Set<String> { Set(moved.map { $0.original.path }) }
 }

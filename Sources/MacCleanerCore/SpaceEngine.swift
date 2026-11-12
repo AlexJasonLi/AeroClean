@@ -19,6 +19,13 @@ public struct SpaceListing: Sendable {
     public let entries: [SpaceEntry]
     public let totalBytes: Int64
     public let isPartial: Bool
+
+    public init(url: URL, entries: [SpaceEntry], totalBytes: Int64, isPartial: Bool) {
+        self.url = url
+        self.entries = entries
+        self.totalBytes = totalBytes
+        self.isPartial = isPartial
+    }
 }
 
 /// wraps `mo analyze --json <folder>`.
