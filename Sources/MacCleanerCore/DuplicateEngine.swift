@@ -63,6 +63,46 @@ public struct DuplicateEngine: Sendable {
         return try Self.decode(result.stdout, policy: policy)
     }
 
+    /// hands fclones a list of files instead of letting it walk the disk. the index already
+    /// knows every size, so only files that share a length with another file are passed.
+    public func scan(candidates: [String], minimumBytes: Int64) async throws -> [DuplicateGroup] {
+        guard let fclones = Tool.fclones.location else { throw MissingTool(tool: .fclones) }
+        guard candidates.count > 1 else { return [] }
+        let input = Data(candidates.joined(separator: "\n").utf8)
+        let result = try await ProcessRunner.run(
+            fclones, ["-q", "group", "--stdin", "--min", "\(minimumBytes)B", "--format", "json"], input: input
+        )
+        try Task.checkCancellation()
+        guard result.status == 0 else {
+            throw ProcessFailure(tool: "fclones", status: result.status, stderr: result.stderr)
+        }
+        return try Self.decode(result.stdout, policy: policy)
+    }
+
+    /// files worth comparing: same length as another file, outside app data, hidden and dependency folders.
+    public static func candidates(in index: DiskIndex, home: String, minimumBytes: Int64) -> [String] {
+        let skipped = Set(dependencyFolders + ["Library", ".Trash"])
+        var byLength: [Int64: [String]] = [:]
+        var folderOK: [Int32: Bool] = [:]
+        func allowed(_ folder: Int32) -> Bool {
+            if let known = folderOK[folder] { return known }
+            let path = index.path(of: folder)
+            var ok = path == home || path.hasPrefix(home + "/")
+            if ok {
+                let parts = path.dropFirst(home.count).split(separator: "/")
+                if let first = parts.first, first == "Library" || first == ".Trash" { ok = false }
+                if parts.contains(where: { $0.hasPrefix(".") || skipped.contains(String($0)) }) { ok = false }
+                if parts.contains(where: { SafetyPolicy.mediaLibraryExtensions.contains(($0 as NSString).pathExtension.lowercased()) }) { ok = false }
+            }
+            folderOK[folder] = ok
+            return ok
+        }
+        for file in index.files where file.length >= minimumBytes && !file.name.hasPrefix(".") && allowed(file.folder) {
+            byLength[file.length, default: []].append(index.path(of: file))
+        }
+        return byLength.values.filter { $0.count > 1 }.flatMap { $0 }
+    }
+
     static let dependencyFolders = [
         "node_modules", "app.asar.unpacked", ".venv", "venv", "site-packages", "Pods",
         ".build", "DerivedData", ".next", ".gradle",

@@ -3,7 +3,7 @@ import Testing
 @testable import MacCleanerCore
 
 struct SafetyPolicyTests {
-    let policy = SafetyPolicy(home: URL(fileURLWithPath: "/Users/fakehome"))
+    let policy = SafetyPolicy(home: URL(fileURLWithPath: "/Users/fakehome"), extraRoots: [])
 
     func verdict(_ path: String) -> SafetyPolicy.Verdict {
         policy.verdict(for: URL(fileURLWithPath: path))
@@ -74,7 +74,7 @@ struct SafetyPolicyTests {
         let cache = sandbox.home.appendingPathComponent("Library/Caches/com.example.app")
         try FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)
 
-        let policy = SafetyPolicy(home: sandbox.home)
+        let policy = SafetyPolicy(home: sandbox.home, extraRoots: [])
         #expect(policy.verdict(for: app) == .allowed)
         #expect(policy.verdict(for: app.appendingPathComponent("Contents/MacOS/Old")) != .allowed)
         #expect(policy.verdict(for: cache.appendingPathComponent("blob")) == .allowed)
@@ -90,7 +90,7 @@ struct SafetyPolicyTests {
         let link = home.appendingPathComponent("link")
         try FileManager.default.createSymbolicLink(at: link, withDestinationURL: outside)
 
-        let policy = SafetyPolicy(home: home)
+        let policy = SafetyPolicy(home: home, extraRoots: [])
         // the link lives in the home folder, so trashing the link itself is fine.
         #expect(policy.verdict(for: link) == .allowed)
         // a path through the link lands outside the home folder.

@@ -12,9 +12,20 @@ public struct SafetyPolicy: Sendable {
 
     /// the home folder with symlinks resolved, no trailing slash.
     public let homePath: String
+    /// folders outside the home folder whose contents may go too: this user's temp
+    /// folders under /var/folders. never the folders themselves.
+    public let extraRootPaths: [String]
 
-    public init(home: URL = FileManager.default.homeDirectoryForCurrentUser) {
+    public init(home: URL = FileManager.default.homeDirectoryForCurrentUser, extraRoots: [URL] = SafetyPolicy.userTemporaryFolders) {
         homePath = Self.canonicalPath(home)
+        extraRootPaths = extraRoots.map { Self.canonicalPath($0.resolvingSymlinksInPath()) }
+    }
+
+    /// T (temporary items) and X (code-signing clones) in this user's /var/folders entry.
+    public static var userTemporaryFolders: [URL] {
+        let temp = URL(fileURLWithPath: NSTemporaryDirectory()).standardizedFileURL
+        guard temp.path.contains("/var/folders/") else { return [] }
+        return [temp, temp.deletingLastPathComponent().appendingPathComponent("X")]
     }
 
     // top-level folders of the home folder that are never removed as a whole.
@@ -58,6 +69,9 @@ public struct SafetyPolicy: Sendable {
     public func verdict(for url: URL) -> Verdict {
         guard url.isFileURL else { return .refused("Not a file on this Mac") }
         let path = Self.canonicalPath(url)
+        if let root = extraRootPaths.first(where: { path.hasPrefix($0 + "/") }) {
+            return insideVerdict(parts: path.dropFirst(root.count + 1).split(separator: "/").map(String.init), base: root)
+        }
         guard path.hasPrefix(homePath + "/") else {
             return .refused("Outside your home folder")
         }
@@ -83,6 +97,15 @@ public struct SafetyPolicy: Sendable {
                 return .refused("\(parts[1]) data is never removed by MacCleaner")
             }
         }
+        return insideVerdict(parts: parts, base: homePath)
+    }
+
+    /// rules that hold wherever an item lives: git data, media libraries, bundle insides.
+    private func insideVerdict(parts: [String], base: String) -> Verdict {
+        guard !parts.isEmpty else { return .refused("A system folder") }
+        if parts.contains(where: { $0 == ".ssh" || $0 == ".gnupg" }) {
+            return .refused("Holds credentials")
+        }
         if parts.contains(".git") {
             return .refused("Git history")
         }
@@ -90,7 +113,7 @@ public struct SafetyPolicy: Sendable {
         if Self.mediaLibraryExtensions.contains(leafExtension) {
             return .refused("Media library, manage it in its own app")
         }
-        var ancestorPath = homePath
+        var ancestorPath = base
         for ancestor in parts.dropLast() {
             ancestorPath += "/" + ancestor
             let ext = (ancestor as NSString).pathExtension.lowercased()

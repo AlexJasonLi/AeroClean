@@ -83,7 +83,7 @@ struct FolderContentTests {
 }
 
 struct CredentialTests {
-    let policy = SafetyPolicy(home: URL(fileURLWithPath: "/Users/fakehome"))
+    let policy = SafetyPolicy(home: URL(fileURLWithPath: "/Users/fakehome"), extraRoots: [])
 
     @Test(arguments: [
         "/Users/fakehome/.docker/config.json",

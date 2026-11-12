@@ -9,10 +9,10 @@ let package = Package(
     ],
     targets: [
         .target(name: "MacCleanerCore"),
-        .executableTarget(
-            name: "MacCleaner",
-            dependencies: ["MacCleanerCore"]
-        ),
+        .target(name: "MacCleanerUI", dependencies: ["MacCleanerCore"]),
+        .executableTarget(name: "MacCleaner", dependencies: ["MacCleanerUI", "MacCleanerCore"]),
+        // renders scenes and screens to png for design review, without a window.
+        .executableTarget(name: "Snapshots", dependencies: ["MacCleanerUI", "MacCleanerCore"]),
         .testTarget(
             name: "MacCleanerCoreTests",
             dependencies: ["MacCleanerCore"],

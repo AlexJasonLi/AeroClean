@@ -68,7 +68,7 @@ struct SpaceEngineTests {
 }
 
 struct DuplicateEngineTests {
-    let policy = SafetyPolicy(home: URL(fileURLWithPath: "/Users/fakehome"))
+    let policy = SafetyPolicy(home: URL(fileURLWithPath: "/Users/fakehome"), extraRoots: [])
 
     @Test func dropsCopiesTheTrasherWouldRefuse() throws {
         let groups = try DuplicateEngine.decode(try fixture("fclones.json"), policy: policy)

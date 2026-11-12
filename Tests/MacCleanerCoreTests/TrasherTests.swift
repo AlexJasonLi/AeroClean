@@ -71,7 +71,7 @@ struct Sandbox {
         home = root.appendingPathComponent("home")
         try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
         log = RemovalLog(fileURL: root.appendingPathComponent("logs/removals.log"))
-        trasher = Trasher(policy: SafetyPolicy(home: home), log: log)
+        trasher = Trasher(policy: SafetyPolicy(home: home, extraRoots: []), log: log)
     }
 
     func remove() { try? FileManager.default.removeItem(at: root) }

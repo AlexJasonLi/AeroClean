@@ -41,10 +41,13 @@ public struct TrashOutcome: Sendable {
 public struct Trasher: Sendable {
     public let policy: SafetyPolicy
     public let log: RemovalLog?
+    /// says why an item is in use right now (for example its app is running), or nil.
+    public let inUse: (@Sendable (URL) -> String?)?
 
-    public init(policy: SafetyPolicy = SafetyPolicy(), log: RemovalLog? = RemovalLog()) {
+    public init(policy: SafetyPolicy = SafetyPolicy(), log: RemovalLog? = RemovalLog(), inUse: (@Sendable (URL) -> String?)? = nil) {
         self.policy = policy
         self.log = log
+        self.inUse = inUse
     }
 
     /// drops requests that sit inside another request, so a folder and its contents
@@ -75,6 +78,7 @@ public struct Trasher: Sendable {
     /// to be moved in this batch, which do not count as surviving copies.
     public func preflight(_ request: TrashRequest, leaving: Set<String> = []) -> String? {
         if case .refused(let reason) = policy.verdict(for: request.url) { return reason }
+        if let reason = inUse?(request.url) { return reason }
         // attributesOfItem does not follow a final symlink, so a dangling link still counts.
         guard let attributes = try? FileManager.default.attributesOfItem(atPath: request.url.path) else {
             return "No longer exists"

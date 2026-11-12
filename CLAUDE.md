@@ -6,6 +6,14 @@
 - Removal always goes to the macOS Trash first. Space is freed only by the separate Empty Trash action, which asks for confirmation and shows what it will free.
 - Native SwiftUI Mac app, source in `~/MacCleaner`.
 
+## Design direction (set by Ali, 2026-11-12)
+
+- Exceptionally clean, old-school, pure design. No text where it is not needed; every feature easy to find and understand.
+- Neo Frutiger Aero, pixelized: glossy glass panels and aqua bubbles over animated pixel nature scenes (flower meadows, hills, ponds, skies).
+- Scenes evoke the feel of Studio Ghibli backdrops and locations, drawn in a pixel-animation style. Never the Ghibli art style, characters or any recreation of their scenes.
+- Reference: Ann Nguyen's interactive pixel portfolio (designeer.xyz/finds/ann-nnng-2114717745443127698): dithered pixel scenes with ragged edges on a calm white card, one-line captions, small interactions.
+- Scans must be very fast, and the app must explain macOS "System Data".
+
 ## Engines
 
 - Public open-source tools do the scanning: Mole (`mo`, GPL-3.0) for the junk preview and folder sizes, fclones (MIT) for duplicates, fd (MIT/Apache-2.0) for large files. All three come from Homebrew.

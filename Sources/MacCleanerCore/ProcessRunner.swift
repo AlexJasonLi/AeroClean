@@ -56,9 +56,10 @@ public enum ProcessRunner {
         _ executable: URL,
         _ arguments: [String],
         delimiter: UInt8 = UInt8(ascii: "\n"),
+        input: Data? = nil,
         onRecord: (@Sendable (String) -> Void)? = nil
     ) async throws -> Result {
-        let job = Job(delimiter: delimiter, onRecord: onRecord)
+        let job = Job(delimiter: delimiter, onRecord: onRecord, input: input)
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Result, Error>) in
                 do {
@@ -102,10 +103,12 @@ final class Job: @unchecked Sendable {
     private var completed = false
     private let out: StreamCollector
     private let err: StreamCollector
+    private let input: Data?
 
-    init(delimiter: UInt8, onRecord: (@Sendable (String) -> Void)?) {
+    init(delimiter: UInt8, onRecord: (@Sendable (String) -> Void)?, input: Data? = nil) {
         out = StreamCollector(delimiter: delimiter, onRecord: onRecord)
         err = StreamCollector(delimiter: delimiter, onRecord: nil)
+        self.input = input
     }
 
     func start(
@@ -122,10 +125,20 @@ final class Job: @unchecked Sendable {
             throw POSIXError(.init(rawValue: errno) ?? .EIO)
         }
 
+        var inPipe: [Int32] = [-1, -1]
+        if input != nil, pipe(&inPipe) != 0 {
+            close(outPipe[0]); close(outPipe[1]); close(errPipe[0]); close(errPipe[1])
+            throw POSIXError(.init(rawValue: errno) ?? .EIO)
+        }
+
         var actions: posix_spawn_file_actions_t?
         posix_spawn_file_actions_init(&actions)
         defer { posix_spawn_file_actions_destroy(&actions) }
-        posix_spawn_file_actions_addopen(&actions, 0, "/dev/null", O_RDONLY, 0)
+        if input != nil {
+            posix_spawn_file_actions_adddup2(&actions, inPipe[0], 0)
+        } else {
+            posix_spawn_file_actions_addopen(&actions, 0, "/dev/null", O_RDONLY, 0)
+        }
         posix_spawn_file_actions_adddup2(&actions, outPipe[1], 1)
         posix_spawn_file_actions_adddup2(&actions, errPipe[1], 2)
 
@@ -155,9 +168,24 @@ final class Job: @unchecked Sendable {
         let spawned = posix_spawn(&child, executable.path, &actions, &attributes, argv, envp)
         close(outPipe[1])
         close(errPipe[1])
+        if input != nil { close(inPipe[0]) }
         guard spawned == 0 else {
             close(outPipe[0]); close(errPipe[0])
+            if input != nil { close(inPipe[1]) }
             throw POSIXError(.init(rawValue: spawned) ?? .EIO)
+        }
+        if let input {
+            let writer = inPipe[1]
+            DispatchQueue.global(qos: .utility).async {
+                input.withUnsafeBytes { raw in
+                    var offset = 0
+                    while offset < raw.count {
+                        let written = write(writer, raw.baseAddress! + offset, raw.count - offset)
+                        if written > 0 { offset += written } else if errno != EINTR { break }
+                    }
+                }
+                close(writer)
+            }
         }
 
         let leader = child
