@@ -13,6 +13,7 @@ let package = Package(
         .executableTarget(name: "MacCleaner", dependencies: ["MacCleanerUI", "MacCleanerCore"]),
         // renders scenes and screens to png for design review, without a window.
         .executableTarget(name: "Snapshots", dependencies: ["MacCleanerUI", "MacCleanerCore"]),
+        .testTarget(name: "MacCleanerUITests", dependencies: ["MacCleanerUI"]),
         .testTarget(
             name: "MacCleanerCoreTests",
             dependencies: ["MacCleanerCore"],

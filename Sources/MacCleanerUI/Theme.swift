@@ -67,6 +67,8 @@ struct PixelCorners: Shape {
 
     func path(in rect: CGRect) -> Path {
         let r = min(radius, rect.width / 2, rect.height / 2)
+        // too small to step: a plain rectangle.
+        guard r >= step, rect.width.isFinite, rect.height.isFinite else { return Path(rect) }
         let n = max(Int(r / step), 1)
         // inset of each step row from the straight edge, rasterised from a quarter circle.
         let insets: [CGFloat] = (0..<n).map { i in

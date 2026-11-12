@@ -146,7 +146,7 @@ final class MeadowScene {
             let top = base - amps.0 * sin(xd * freqs.0 + p1) - amps.1 * sin(xd * freqs.1 + p2) - amps.2 * sin(xd * freqs.2 + p3)
             let topY = Int(top.rounded())
             tops.append(topY)
-            for y in max(topY, 0)..<height {
+            for y in span(max(topY, 0), height) {
                 let depth = Double(y - topY)
                 var color = Bayer.ramp(colors, min(depth / 10, Double(colors.count - 1)), x, y)
                 if rim, depth < 1 { color = palette.rim }
@@ -166,7 +166,7 @@ final class MeadowScene {
             x += r * rand.range(0.8, 1.4)
         }
         for x in 0..<width {
-            for y in Int(top)..<bottom where back.packed(x, y) == 0 && y > Int(top) + 4 {
+            for y in span(Int(top), bottom) where back.packed(x, y) == 0 && y > Int(top) + 4 {
                 back.set(x, y, palette.far[2])
             }
         }
@@ -190,7 +190,7 @@ final class MeadowScene {
     private func tree(at x: Int, ground: [Int], size: Double, _ rand: inout Rand) {
         let baseY = ground[min(max(x, 0), width - 1)]
         let trunkTop = baseY - Int(size * 0.45)
-        for y in trunkTop...baseY {
+        for y in span(trunkTop, baseY + 1) {
             for dx in -2...1 { back.set(x + dx, y, dx < 0 ? palette.bark[0] : palette.bark[1]) }
         }
         let crown = Double(trunkTop) - size * 0.2
@@ -213,9 +213,9 @@ final class MeadowScene {
         for (index, start) in edges.enumerated() {
             let end = index + 1 < edges.count ? edges[index + 1] : width
             let color = bands[rand.int(0, bands.count - 1)]
-            for xx in start..<end {
+            for xx in span(start, end) {
                 let t = top[min(xx, width - 1)]
-                for y in (t + 2)..<min(t + Int(6 * depth), height) {
+                for y in span(t + 2, min(t + Int(6 * depth), height)) {
                     back.set(xx, y, Bayer.pick(color, palette.near[0], 0.12, xx, y))
                 }
             }
@@ -367,8 +367,8 @@ final class MeadowScene {
     }
 
     private func draw(_ cloud: Cloud, _ t: Double, _ out: inout PixelBuffer) {
-        let span = Double(width) + 80
-        let cx = (cloud.x + t * cloud.speed * wind).truncatingRemainder(dividingBy: span) - 40
+        let travel = Double(width) + 80
+        let cx = (cloud.x + t * cloud.speed * wind).truncatingRemainder(dividingBy: travel) - 40
         var minX = Int.max, maxX = Int.min, minY = Int.max
         for puff in cloud.puffs {
             minX = min(minX, Int(cx + puff.0 - puff.2) - 1)
@@ -377,8 +377,9 @@ final class MeadowScene {
         }
         let baseY = cloud.y + cloud.base
         let top = Double(minY)
-        for y in max(minY, 0)...max(min(Int(baseY), height - 1), 0) {
-            for x in max(minX, 0)...max(min(maxX, width - 1), 0) {
+        // clouds drift past both edges, so either range can be empty.
+        for y in span(max(minY, 0), min(Int(baseY), height - 1) + 1) {
+            for x in span(max(minX, 0), min(maxX, width - 1) + 1) {
                 var inside = false
                 for puff in cloud.puffs {
                     let dx = Double(x) - (cx + puff.0)
@@ -394,7 +395,7 @@ final class MeadowScene {
     }
 
     private func reflect(from waterTop: Int, _ t: Double, _ out: inout PixelBuffer) {
-        for y in waterTop..<height {
+        for y in span(waterTop, height) {
             let depth = Double(y - waterTop)
             let source = waterTop - 1 - Int(depth * 0.9)
             let wobble = Int((sin(Double(y) * 0.8 + t * 1.8) * (0.6 + depth * 0.06)).rounded())
@@ -519,6 +520,9 @@ final class MeadowScene {
             }
         }
     }
+
+    /// a half-open range that is empty instead of a crash when hi is below lo.
+    private func span(_ lo: Int, _ hi: Int) -> Range<Int> { lo..<max(lo, hi) }
 
     private func wrap(_ value: Double, _ span: Double) -> Double {
         let r = value.truncatingRemainder(dividingBy: span)
