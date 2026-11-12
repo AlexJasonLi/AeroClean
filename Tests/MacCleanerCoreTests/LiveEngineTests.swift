@@ -18,29 +18,18 @@ struct LiveEngineTests {
         #expect(!preview.items.isEmpty)
     }
 
-    @Test func fdFindsLargeFiles() async throws {
-        let found = LockedList<LargeFile>()
-        let count = try await LargeFileEngine().scan(minimumBytes: 500_000_000, includeLibrary: false) { found.append($0) }
-        let files = found.items.sorted { $0.bytes > $1.bytes }
-        print("large: \(count) files over 500 MB")
-        for file in files.prefix(5) { print("  \(file.bytes) \(file.kind) \(file.url.path) opened=\(String(describing: file.lastOpened))") }
-        #expect(count == files.count)
-        #expect(files.allSatisfy { $0.bytes >= 500_000_000 && policy.verdict(for: $0.url).isAllowed })
-    }
-
-    @Test func fclonesFindsDuplicates() async throws {
-        let groups = try await DuplicateEngine().scan(minimumBytes: 10_000_000)
-        print("duplicates: \(groups.count) groups, \(groups.reduce(0) { $0 + $1.redundantBytes }) redundant bytes")
-        for group in groups.prefix(3) { print("  \(group.copies.count)x \(group.bytes) \(group.copies.map(\.url.lastPathComponent))") }
+    @Test func indexesTheHomeFolderQuickly() async throws {
+        let index = FastScanner.scan(roots: [home])
+        print("index: \(index.totalFiles) files, \(index.totalBytes) bytes, \(index.files.count) big files in \(index.duration) s")
+        #expect(index.totalFiles > 0)
+        #expect(index.duration < 60)
+        let candidates = DuplicateEngine.candidates(in: index, home: home.path, minimumBytes: 10_000_000)
+        let groups = try await DuplicateEngine().scan(candidates: candidates, minimumBytes: 10_000_000)
+        print("duplicates: \(candidates.count) candidates, \(groups.count) groups")
         #expect(groups.allSatisfy { $0.copies.count > 1 })
-        #expect(!groups.flatMap(\.copies).contains { $0.url.path.contains("/Library/") })
-    }
-
-    @Test func moleMeasuresAFolder() async throws {
-        let listing = try await SpaceEngine().list(home.appendingPathComponent("Downloads"))
-        print("space: ~/Downloads \(listing.totalBytes) bytes, \(listing.entries.count) entries, partial=\(listing.isPartial)")
-        #expect(listing.totalBytes > 0)
-        #expect(listing.entries.allSatisfy { $0.url.path.hasPrefix(home.path + "/Downloads/") })
+        let volumes = await SystemProbe.volumes()
+        print("volumes: swap \(volumes.swap), preboot \(volumes.preboot), snapshots \(volumes.localSnapshots)")
+        #expect(volumes.preboot > 0)
     }
 
     @Test func diskStatusReads() throws {

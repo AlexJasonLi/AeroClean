@@ -33,6 +33,8 @@ final class JunkModel {
     private let policy = SafetyPolicy()
     private var task: Task<Void, Never>?
 
+    var step: String? { if case .scanning(let step) = state { step } else { nil } }
+
     var totalBytes: Int64? { items.isEmpty ? nil : items.reduce(0) { $0 + ($1.bytes ?? 0) } }
     var checkedBytes: Int64 { items.lazy.filter { self.checked.contains($0.id) }.reduce(0) { $0 + ($1.bytes ?? 0) } }
 

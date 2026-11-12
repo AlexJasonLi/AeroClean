@@ -5,18 +5,20 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 swift build -c release --product MacCleaner
-bin="$(swift build -c release --show-bin-path)/MacCleaner"
+swift build -c release --product Snapshots
+bins="$(swift build -c release --show-bin-path)"
+bin="$bins/MacCleaner"
 app="build/MacCleaner.app"
 
-if [ ! -f build/AppIcon.icns ] || [ scripts/make-icon.swift -nt build/AppIcon.icns ]; then
-    swift scripts/make-icon.swift build/AppIcon.icns
-fi
+mkdir -p build
+"$bins/Snapshots" icon build/AppIcon.icns
 
 rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 cp "$bin" "$app/Contents/MacOS/MacCleaner"
 cp Resources/Info.plist "$app/Contents/Info.plist"
 cp build/AppIcon.icns "$app/Contents/Resources/AppIcon.icns"
+cp Resources/Fonts/DepartureMono-Regular.otf Resources/Fonts/DepartureMono-LICENSE.txt "$app/Contents/Resources/"
 codesign --force --sign "${SIGN_IDENTITY:--}" "$app"
 echo "built $app"
 

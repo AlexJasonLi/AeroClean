@@ -12,6 +12,8 @@ public struct SystemVolumes: Sendable, Equatable {
     /// the sealed macOS system volume.
     public var system: Int64 = 0
     public var localSnapshots = 0
+
+    public init() {}
 }
 
 public enum SystemProbe {

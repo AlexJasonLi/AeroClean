@@ -53,20 +53,6 @@ struct MoleCleanListTests {
     }
 }
 
-struct SpaceEngineTests {
-    @Test func decodesMoleAnalyzeJSON() throws {
-        let listing = try SpaceEngine.decode(try fixture("analyze.json"))
-        #expect(listing.isPartial)
-        #expect(listing.entries.count == 4)
-        let byName = Dictionary(uniqueKeysWithValues: listing.entries.map { ($0.name, $0) })
-        #expect(byName["Library"]?.isPartial == true)
-        #expect(byName["node_modules"]?.isCleanable == true)
-        #expect(byName["clip.mov"]?.lastAccess != nil)
-        #expect(byName["clip.mov"]?.isDirectory == false)
-        #expect(byName["Locked"]?.bytes == 0)
-    }
-}
-
 struct DuplicateEngineTests {
     let policy = SafetyPolicy(home: URL(fileURLWithPath: "/Users/fakehome"), extraRoots: [])
 

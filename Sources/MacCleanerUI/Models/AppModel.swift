@@ -32,61 +32,105 @@ enum ScanState: Equatable {
 }
 
 enum Pane: String, CaseIterable, Identifiable {
-    case junk, largeFiles, duplicates, space
+    case junk, large, copies, space, system
     var id: String { rawValue }
 
     var title: String {
         switch self {
         case .junk: "Junk"
-        case .largeFiles: "Large Files"
-        case .duplicates: "Duplicates"
+        case .large: "Large"
+        case .copies: "Copies"
         case .space: "Space"
+        case .system: "System"
         }
     }
 
-    var symbol: String {
+    var glyph: Glyph {
         switch self {
-        case .junk: "sparkles"
-        case .largeFiles: "scalemass"
-        case .duplicates: "square.on.square"
-        case .space: "folder"
+        case .junk: .sparkle
+        case .large: .weight
+        case .copies: .copies
+        case .space: .folder
+        case .system: .computer
+        }
+    }
+
+    var scene: SceneKind {
+        switch self {
+        case .junk: .dandelionHill
+        case .large: .summerRidge
+        case .copies: .stillPond
+        case .space: .valleyFields
+        case .system: .duskMeadow
         }
     }
 }
 
 @MainActor @Observable
-final class AppModel {
+public final class AppModel {
     var pane: Pane = .junk
     var disk: DiskStatus?
     /// nil when macOS keeps the trash unreadable without full disk access.
     var trashBytes: Int64?
     var movedThisSession: Int64 = 0
-    var missingTools: [Tool] = Tool.missing
+    var missingTools: [Tool] = Tool.missing.filter { $0 != .fd }
 
     var pendingRemoval: PendingRemoval?
     var isRemoving = false
     var removalProgress: (done: Int, total: Int)?
     var lastOutcome: TrashOutcome?
     var showingFailures = false
+    /// bumps on every successful removal, so the scene can scatter petals.
+    var celebration = 0
 
     var confirmingEmptyTrash = false
     var isEmptyingTrash = false
     var emptyTrashError: String?
+    var preview: URL?
 
+    let index = IndexModel()
     let junk = JunkModel()
-    let largeFiles = LargeFilesModel()
+    let large = LargeFilesModel()
     let duplicates = DuplicatesModel()
     let space = SpaceModel()
+    let system = SystemDataModel()
 
-    private let trasher = Trasher()
 
-    init() {
+    public init() {
         junk.loadLastPreview()
         refreshStorage()
+        index.start()
+        system.refreshVolumes()
+    }
+
+    struct RunningApp: Sendable {
+        let bundle: String
+        let name: String
+    }
+
+    static func runningApps() -> [RunningApp] {
+        NSWorkspace.shared.runningApplications
+            .filter { $0.activationPolicy == .regular && $0.bundleIdentifier != Bundle.main.bundleIdentifier }
+            .compactMap { app in app.bundleIdentifier.map { RunningApp(bundle: $0.lowercased(), name: app.localizedName ?? $0) } }
+    }
+
+    /// refuses caches and data of apps that are running right now.
+    nonisolated static func inUseReason(_ url: URL, running: [RunningApp]) -> String? {
+        let parts = url.standardizedFileURL.pathComponents
+        let inAppData = parts.contains("Application Support") || parts.contains("Caches") || parts.contains("Containers")
+        for app in running {
+            if parts.contains(where: { $0.lowercased() == app.bundle || $0.lowercased().hasPrefix(app.bundle + ".") }) {
+                return "Quit \(app.name) first"
+            }
+            if inAppData, app.name != "Finder", parts.contains(app.name) {
+                return "Quit \(app.name) first"
+            }
+        }
+        return nil
     }
 
     func recheckTools() {
-        missingTools = Tool.missing
+        missingTools = Tool.missing.filter { $0 != .fd }
     }
 
     func refreshStorage() {
@@ -118,7 +162,8 @@ final class AppModel {
         guard let pending = pendingRemoval, !isRemoving else { return }
         isRemoving = true
         removalProgress = (0, pending.items.count)
-        let trasher = trasher
+        let running = Self.runningApps()
+        let trasher = Trasher(inUse: { url in AppModel.inUseReason(url, running: running) })
         let requests = pending.items.map(\.request)
         Task {
             let outcome = await Task.detached(priority: .userInitiated) {
@@ -132,13 +177,16 @@ final class AppModel {
             removalProgress = nil
             pendingRemoval = nil
             movedThisSession += outcome.bytesMoved
-            lastOutcome = outcome
+            lastOutcome = outcome.moved.isEmpty ? nil : outcome
             showingFailures = !outcome.failed.isEmpty
-            // every pane drops what moved, so no list keeps a file that is already in the trash.
+            if !outcome.moved.isEmpty { celebration += 1 }
+            // every view drops what moved, so no list keeps a file that is already in the trash.
+            index.didTrash(outcome.moved)
             junk.didTrash(outcome.moved)
-            largeFiles.didTrash(outcome.moved)
+            large.didTrash(outcome.moved)
             duplicates.didTrash(outcome.moved)
             space.didTrash(outcome.moved)
+            system.didTrash(outcome.moved)
             refreshStorage()
         }
     }
@@ -156,12 +204,24 @@ final class AppModel {
         refreshStorage()
     }
 
-    func badge(for pane: Pane) -> Int64? {
+    /// the scan button in the hero: what it does depends on the pane.
+    func scan() {
         switch pane {
-        case .junk: junk.totalBytes
-        case .largeFiles: largeFiles.totalBytes
-        case .duplicates: duplicates.totalRedundantBytes
-        case .space: nil
+        case .junk: junk.state.isScanning ? junk.stop() : junk.scan()
+        case .copies: duplicates.state.isScanning ? duplicates.stop() : duplicates.scan(index: index)
+        case .large, .space:
+            index.scan()
+        case .system:
+            index.scan()
+            system.refreshVolumes()
+        }
+    }
+
+    var isScanning: Bool {
+        switch pane {
+        case .junk: junk.state.isScanning
+        case .copies: duplicates.state.isScanning
+        case .large, .space, .system: index.state.isScanning
         }
     }
 }

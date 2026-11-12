@@ -77,15 +77,22 @@ final class DuplicatesModel {
         .sorted(using: sortOrder)
     }
 
-    func scan() {
+    func scan(index model: IndexModel) {
+        guard let index = model.index else { return }
         task?.cancel()
         generation += 1
         let current = generation
         state = .scanning(nil)
         let minimum = minimumBytes
+        let home = model.home
+        let removed = Set(model.removedPaths)
         task = Task {
             do {
-                let found = try await engine.scan(minimumBytes: minimum)
+                let candidates = await Task.detached(priority: .userInitiated) {
+                    DuplicateEngine.candidates(in: index, home: home, minimumBytes: minimum)
+                        .filter { !Trasher.covers(removed, $0) }
+                }.value
+                let found = try await engine.scan(candidates: candidates, minimumBytes: minimum)
                 guard current == generation else { return }
                 groups = found
                 checked = []

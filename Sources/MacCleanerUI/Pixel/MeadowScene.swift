@@ -126,8 +126,8 @@ final class MeadowScene {
                 let dx = (Double(x) - sunX) / 1.6
                 let dy = Double(y) - sunY
                 let d = (dx * dx + dy * dy).squareRoot()
-                let glow = max(0, 1 - d / (Double(height) * 0.3))
-                if glow > 0 { color = Bayer.pick(color, palette.glow, pow(glow, 2.2) * 0.75, x, y) }
+                let glow = max(0, 1 - d / (Double(height) * 0.24))
+                if glow > 0 { color = Bayer.pick(color, palette.glow, pow(glow, 2.6) * 0.6, x, y) }
                 if d < 2.2 { color = palette.sun }
                 sky.set(x, y, color)
             }
