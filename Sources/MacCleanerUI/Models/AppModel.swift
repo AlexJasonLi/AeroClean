@@ -223,16 +223,37 @@ public final class AppModel {
         refreshStorage()
     }
 
-    /// the scan button in the hero: what it does depends on the pane.
+    /// the scan button in the hero: scans what the current pane shows, or stops that scan.
     func scan() {
         switch pane {
         case .junk: junk.state.isScanning ? junk.stop() : junk.scan()
         case .copies: duplicates.state.isScanning ? duplicates.stop() : duplicates.scan(index: index)
-        case .large, .space:
-            index.scan()
-        case .system:
-            index.scan()
-            system.refreshVolumes()
+        case .large, .space, .system:
+            if index.state.isScanning {
+                index.stop()
+            } else {
+                index.scan()
+                if pane == .system { system.refreshVolumes() }
+            }
+        }
+    }
+
+    /// when the current pane's data was last gathered.
+    var lastScanned: Date? {
+        switch pane {
+        case .junk: junk.scannedAt
+        case .copies: if case .done(let date) = duplicates.state { date } else { nil }
+        case .large, .space, .system: index.index?.scannedAt
+        }
+    }
+
+    /// what the scan button will do, in a few words.
+    var scanHelp: String {
+        if isScanning { return "Stop scanning" }
+        switch pane {
+        case .junk: return "Ask Mole for a fresh junk check"
+        case .copies: return "Look for copies again"
+        case .large, .space, .system: return "Rescan your disk"
         }
     }
 

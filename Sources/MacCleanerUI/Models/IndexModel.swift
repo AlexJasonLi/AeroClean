@@ -23,10 +23,18 @@ final class IndexModel {
     private(set) var removed: [String: Int64] = [:]
     @ObservationIgnored private var removedKeys: Set<String> = []
 
-    let home = FileManager.default.homeDirectoryForCurrentUser.standardizedFileURL.resolvingSymlinksInPath().path
-    private let store = IndexStore()
+    let home: String
+    private let store: IndexStore
+    /// what to scan; nil means the home folder plus the system data folders.
+    private let roots: [URL]?
     private var cancel: CancelFlag?
     private var generation = 0
+
+    init(home: String? = nil, roots: [URL]? = nil, store: IndexStore = IndexStore()) {
+        self.home = home ?? FileManager.default.homeDirectoryForCurrentUser.standardizedFileURL.resolvingSymlinksInPath().path
+        self.roots = roots
+        self.store = store
+    }
 
     func start() {
         Task {
@@ -46,7 +54,7 @@ final class IndexModel {
         let current = generation
         state = .scanning(nil)
         progress = nil
-        let roots = [URL(fileURLWithPath: home)] + SystemProbe.systemRoots
+        let roots = self.roots ?? [URL(fileURLWithPath: home)] + SystemProbe.systemRoots
         let store = store
         Task {
             let fresh = await Task.detached(priority: .userInitiated) {
@@ -59,6 +67,16 @@ final class IndexModel {
             state = .done(fresh.scannedAt)
             Task.detached(priority: .utility) { store.save(fresh) }
         }
+    }
+
+    /// stops a running scan and keeps the last finished index on screen.
+    func stop() {
+        guard state.isScanning else { return }
+        cancel?.set()
+        cancel = nil
+        generation += 1
+        progress = nil
+        state = index.map { .done($0.scannedAt) } ?? .idle
     }
 
     private func apply(_ fresh: DiskIndex) {

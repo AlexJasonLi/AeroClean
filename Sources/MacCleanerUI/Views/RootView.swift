@@ -166,22 +166,33 @@ struct PixelText: View {
     private static let offsets: [(CGFloat, CGFloat)] = [(-1, 0), (1, 0), (0, -1), (0, 1), (1, 1)]
 }
 
+/// rescans what the current pane shows. labelled, and says when it last ran on hover.
 struct ScanBubble: View {
     @Environment(AppModel.self) private var app
+    @State private var hovering = false
 
     var body: some View {
-        Button { app.scan() } label: {
-            Bubble(size: 50, lit: true) {
-                if app.isScanning {
-                    PixelSpinner()
-                } else {
-                    PixelGlyph(glyph: .scan, cell: 2, color: .white)
+        let last = app.lastScanned
+        VStack(spacing: 4) {
+            Button { app.scan() } label: {
+                Bubble(size: 50, lit: true) {
+                    if app.isScanning {
+                        PixelSpinner()
+                    } else {
+                        PixelGlyph(glyph: .scan, cell: 2, color: .white)
+                    }
                 }
             }
+            .buttonStyle(.plain)
+            .help(app.scanHelp)
+            .keyboardShortcut("r", modifiers: .command)
+            PixelText(app.isScanning ? "stop" : (last == nil ? "scan" : "rescan"), size: 11)
+            PixelText(last.map { Format.relative($0) } ?? " ", size: 11)
+                .opacity(hovering && !app.isScanning && last != nil ? 1 : 0)
         }
-        .buttonStyle(.plain)
-        .help(app.isScanning ? "Stop" : "Scan")
-        .keyboardShortcut("r", modifiers: .command)
+        .contentShape(Rectangle())
+        .onHover { hovering = $0 }
+        .animation(.easeOut(duration: 0.15), value: hovering)
     }
 }
 
