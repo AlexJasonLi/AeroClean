@@ -16,6 +16,8 @@ struct RemovalItem: Identifiable, Hashable {
 struct PendingRemoval: Identifiable {
     let id = UUID()
     let items: [RemovalItem]
+    /// the pane it came from; junk gets the strictest checks.
+    var source: Pane = .junk
     /// how many checked folders hold git repositories; nil while still looking.
     var foldersWithGit: Int?
 
@@ -116,6 +118,10 @@ public final class AppModel {
 
     /// refuses caches and data of apps that are running right now.
     nonisolated static func inUseReason(_ url: URL, running: [RunningApp]) -> String? {
+        let path = url.standardizedFileURL.path
+        for owner in AppOwners.owners(of: path) where running.contains(where: { app in owner.bundles.contains { app.bundle.hasPrefix($0.lowercased()) } }) {
+            return "Quit \(owner.label) first"
+        }
         let parts = url.standardizedFileURL.pathComponents
         let inAppData = parts.contains("Application Support") || parts.contains("Caches") || parts.contains("Containers")
         for app in running {
@@ -143,7 +149,7 @@ public final class AppModel {
 
     func requestRemoval(_ items: [RemovalItem]) {
         guard !items.isEmpty, !isRemoving else { return }
-        let pending = PendingRemoval(items: items, foldersWithGit: nil)
+        let pending = PendingRemoval(items: items, source: pane, foldersWithGit: nil)
         pendingRemoval = pending
         // a whole project folder can go, but say so when it carries git history.
         let folders = items.count <= 200 ? items.map(\.url) : []
@@ -163,7 +169,20 @@ public final class AppModel {
         isRemoving = true
         removalProgress = (0, pending.items.count)
         let running = Self.runningApps()
-        let trasher = Trasher(inUse: { url in AppModel.inUseReason(url, running: running) })
+        let strict = pending.source == .junk
+        let rules = strict ? JunkRules() : nil
+        let trasher = Trasher(inUse: { url in
+            if let reason = AppModel.inUseReason(url, running: running) { return reason }
+            guard let rules else { return nil }
+            // junk is checked again at the moment it moves: still junk, and not being written to.
+            if case .doubt(let reason) = rules.classify(url.standardizedFileURL.path) { return "Not junk: \(reason.lowercased())" }
+            if let modified = (try? FileManager.default.attributesOfItem(atPath: url.path))?[.modificationDate] as? Date,
+               Date().timeIntervalSince(modified) < 300
+            {
+                return "In use right now, try again later"
+            }
+            return nil
+        })
         let requests = pending.items.map(\.request)
         Task {
             let outcome = await Task.detached(priority: .userInitiated) {

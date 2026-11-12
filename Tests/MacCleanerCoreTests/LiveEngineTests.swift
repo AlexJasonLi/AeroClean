@@ -32,6 +32,30 @@ struct LiveEngineTests {
         #expect(volumes.preboot > 0)
     }
 
+    @Test func junkRulesOnMolesList() throws {
+        let preview = try #require(JunkEngine().lastPreview())
+        let rules = JunkRules()
+        var kept: [String: (Int, Int64)] = [:]
+        var doubts: [String: (Int, Int64, String)] = [:]
+        for item in preview.items {
+            let bytes = item.bytes ?? 0
+            switch rules.classify(item.url.path) {
+            case .junk(let kind):
+                let old = kept[kind.title] ?? (0, 0)
+                kept[kind.title] = (old.0 + 1, old.1 + bytes)
+            case .doubt(let reason):
+                let old = doubts[reason] ?? (0, 0, item.url.path)
+                doubts[reason] = (old.0 + 1, old.1 + bytes, old.2)
+            }
+        }
+        for (title, value) in kept.sorted(by: { $0.value.1 > $1.value.1 }) {
+            print(String(format: "KEEP  %8.1f MB  %5d  %@", Double(value.1) / 1e6, value.0, title))
+        }
+        for (reason, value) in doubts.sorted(by: { $0.value.1 > $1.value.1 }) {
+            print(String(format: "DOUBT %8.1f MB  %5d  %@  e.g. %@", Double(value.1) / 1e6, value.0, reason, value.2))
+        }
+    }
+
     @Test func diskStatusReads() throws {
         let disk = try #require(DiskStatus.current())
         print("disk: \(disk.availableBytes) available of \(disk.totalBytes), trash readable=\(TrashService.size() != nil)")

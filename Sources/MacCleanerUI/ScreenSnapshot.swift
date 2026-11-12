@@ -37,6 +37,8 @@ public enum ScreenSnapshot {
             model.large.checked = Set(rows.prefix(2).map(\.id))
         case .copies:
             model.duplicates.checkExtraCopies()
+        case .junk:
+            if let first = model.junk.rows.first { model.junk.checked = Set(first.paths) }
         default:
             break
         }

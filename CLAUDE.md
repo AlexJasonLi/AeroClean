@@ -6,6 +6,13 @@
 - Removal always goes to the macOS Trash first. Space is freed only by the separate Empty Trash action, which asks for confirmation and shows what it will free.
 - Native SwiftUI Mac app, source in `~/MacCleaner`.
 
+## Junk must be junk (set by Ali, 2026-11-12)
+
+- Everything in the Junk pane must be removable without affecting anything: rebuilt automatically, downloaded again only if needed, or never read. If MacCleaner cannot vouch for an item, it is not junk.
+- `JunkRules` decides; Mole only proposes. Unknown patterns are doubts, never junk. Doubts are shown read-only under "left out" with the reason.
+- At removal every junk item is classified again and refused if it no longer matches, if its app is running (`AppOwners` plus bundle id or name), or if it changed in the last five minutes.
+- Never junk: simulator system assets, website data (Service Worker), window state of installed apps, histories, credentials, anything outside the home folder.
+
 ## Design direction (set by Ali, 2026-11-12)
 
 - Exceptionally clean, old-school, pure design. No text where it is not needed; every feature easy to find and understand.

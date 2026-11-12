@@ -222,16 +222,21 @@ struct PreviewOnSpace: ViewModifier {
 struct JunkList: View {
     @Environment(AppModel.self) private var app
     @State private var expanded: Set<String> = []
+    @State private var showLeftOut = false
     @State private var selection = ListSelection()
 
     var body: some View {
         let model = app.junk
         VStack(spacing: 0) {
             ListHeader {
-                Text(model.scannedAt.map { "found by mole · \(Format.relative($0))" } ?? "found by mole")
+                Text(model.scannedAt.map { "found by mole, checked by maccleaner · \(Format.relative($0))" } ?? "found by mole, checked by maccleaner")
                     .font(Theme.pixel(11))
                     .foregroundStyle(Theme.inkFaint)
             } trailing: {
+                if model.leftOutBytes > 0 {
+                    Chip(title: "left out \(Format.bytes(model.leftOutBytes))", lit: showLeftOut) { showLeftOut.toggle() }
+                        .help("What Mole listed that MacCleaner will not call junk, and why")
+                }
                 if !model.items.isEmpty {
                     Chip(title: model.checked.isEmpty ? "Check all" : "Uncheck all") { model.checkAll(model.checked.isEmpty) }
                 }
@@ -246,44 +251,41 @@ struct JunkList: View {
                 case .done:
                     ListMessage(title: "no junk found")
                 case .idle:
-                    ListMessage(title: "caches, logs and leftovers", detail: "Mole knows which ones are safe to remove.",
+                    ListMessage(title: "caches, logs and leftovers", detail: "Only things that are rebuilt, downloaded again or never read.",
                                 action: ("Scan for junk", model.scan))
                 }
             } else {
                 let largest = max(model.rows.first?.bytes ?? 1, 1)
                 RowStack {
-                    ForEach(model.rows) { group in
-                        let children = group.children ?? []
-                        let open = expanded.contains(group.id)
-                        let leaves = children.filter { $0.refusal == nil }.map(\.id)
-                        let checkedCount = leaves.filter { model.checked.contains($0) }.count
+                    if showLeftOut {
+                        LeftOutSection(rows: model.leftOut)
+                    }
+                    ForEach(model.rows) { kind in
+                        let open = expanded.contains(kind.id)
                         ItemRow(
-                            icon: Icons.owner(group.name, fallback: children.first?.url?.deletingLastPathComponent().path),
-                            title: Icons.appName(group.name) ?? group.name,
-                            subtitle: "\(group.section.lowercased()) · \(group.detail)",
-                            bytes: group.bytes, share: Double(group.bytes) / Double(largest),
-                            check: checkedCount == 0 ? false : (checkedCount == leaves.count ? true : nil),
-                            refusal: leaves.isEmpty ? "Nothing here can be removed" : nil,
-                            expanded: open, selected: selection.id == group.id,
-                            onCheck: {
-                                if checkedCount == leaves.count { model.checked.subtract(leaves) } else { model.checked.formUnion(leaves) }
-                            },
-                            onSelect: { selection.select(group.id, path: children.first?.url?.path) },
-                            onOpen: { toggle(group.id) },
-                            onExpand: { toggle(group.id) },
-                            menuPaths: children.compactMap { $0.url?.path },
+                            icon: nil, glyph: glyph(for: kind.id),
+                            title: kind.name, subtitle: kind.detail,
+                            bytes: kind.bytes, share: Double(kind.bytes) / Double(largest),
+                            check: model.state(of: kind.paths),
+                            expanded: open, selected: selection.id == kind.id,
+                            onCheck: { model.toggle(kind.paths) },
+                            onSelect: { selection.select(kind.id, path: kind.paths.first) },
+                            onOpen: { toggle(kind.id) },
+                            onExpand: { toggle(kind.id) },
+                            menuPaths: kind.paths,
                             preview: { app.preview = $0 }
                         )
                         if open {
-                            ForEach(children) { child in
+                            ForEach(kind.children ?? []) { owner in
                                 ItemRow(
-                                    icon: child.url.map { Icons.file($0.path) }, title: child.name, subtitle: child.detail,
-                                    bytes: child.bytes, check: model.checked.contains(child.id), refusal: child.refusal,
-                                    indent: 22, selected: selection.id == child.id,
-                                    onCheck: { model.checked.formSymmetricDifference([child.id]) },
-                                    onSelect: { selection.select(child.id, path: child.url?.path) },
-                                    onOpen: { if let url = child.url { NSWorkspace.shared.activateFileViewerSelecting([url]) } },
-                                    menuPaths: child.url.map { [$0.path] } ?? [],
+                                    icon: Icons.owner(owner.owner ?? owner.name, fallback: owner.paths.first.map { ($0 as NSString).deletingLastPathComponent }),
+                                    title: owner.name, subtitle: owner.detail,
+                                    bytes: owner.bytes, check: model.state(of: owner.paths),
+                                    indent: 22, selected: selection.id == owner.id,
+                                    onCheck: { model.toggle(owner.paths) },
+                                    onSelect: { selection.select(owner.id, path: owner.paths.first) },
+                                    onOpen: { NSWorkspace.shared.activateFileViewerSelecting(owner.paths.prefix(20).map { URL(fileURLWithPath: $0) }) },
+                                    menuPaths: owner.paths,
                                     preview: { app.preview = $0 }
                                 )
                             }
@@ -297,6 +299,43 @@ struct JunkList: View {
 
     private func toggle(_ id: String) {
         if expanded.contains(id) { expanded.remove(id) } else { expanded.insert(id) }
+    }
+
+    private func glyph(for id: String) -> Glyph {
+        switch id {
+        case "kind:logs": .page
+        case "kind:temporary": .clock
+        case "kind:buildCache": .box
+        case "kind:downloadCache": .download
+        case "kind:leftover": .leaf
+        case "kind:oldExtension": .copies
+        default: .sparkle
+        }
+    }
+}
+
+/// what mole listed but MacCleaner left out, with the reason. read only.
+struct LeftOutSection: View {
+    let rows: [JunkRow]
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("left out of junk, not removable here")
+                    .font(Theme.pixel(11))
+                    .foregroundStyle(Theme.inkSoft)
+                Spacer()
+            }
+            .padding(.horizontal, 14)
+            .padding(.top, 12)
+            .padding(.bottom, 4)
+            ForEach(rows) { row in
+                ItemRow(icon: nil, glyph: .lock, title: row.name, subtitle: row.detail, bytes: row.bytes,
+                        check: false, refusal: row.doubt, menuPaths: row.paths)
+            }
+            Rectangle().fill(Theme.hairline).frame(height: 1).padding(.top, 8)
+        }
+        .background(Theme.mist.opacity(0.6))
     }
 }
 

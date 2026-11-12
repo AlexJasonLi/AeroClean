@@ -10,6 +10,22 @@ A Mac app for finding and removing large, duplicate and unneeded files, and for 
 | Space | folder sizes, double-click to go inside | disk index |
 | System | swap, startup volumes, app data, caches, temporary files, simulators, hidden folders | disk index + diskutil |
 
+## What counts as junk
+
+Mole proposes candidates; MacCleaner keeps only what its own rules (`Sources/MacCleanerCore/JunkRules.swift`) can vouch for, grouped by why it is safe:
+
+| Group | Why removing it changes nothing |
+| --- | --- |
+| App caches | apps rebuild them on their own (`~/Library/Caches`, cache folders inside apps) |
+| Download caches | package managers and updaters fetch them again only if needed |
+| Logs and crash reports | nothing reads them to run |
+| Build caches | rebuilt on the next build (`__pycache__`, `.next/cache`, Xcode DerivedData) |
+| Temporary files | scratch files in apps' `tmp` folders |
+| Leftovers | saved state of apps no longer installed |
+| Old extensions | versions Cursor marked obsolete or replaced |
+
+Anything else Mole lists is left out and shown read-only with the reason, for example a simulator's own system assets or Chrome's website data. When you move junk to the Trash, each item is checked again: it must still match a rule, its app must not be running, and it must not have changed in the last five minutes.
+
 ## The disk index
 
 One scan sizes every folder in your home folder plus `/Library`, your `/var/folders` temp folders, `/private/var/log` and `/System/Library/AssetsV2`, and lists every file over 1 MB. All panes except Junk read it, so moving between them is instant. The last index is saved in `~/Library/Caches/local.maccleaner/` and shown at launch while a fresh scan runs.

@@ -2,40 +2,40 @@ import AppKit
 import MacCleanerCore
 import Observation
 
-/// a row of the junk table: an app or tool with its paths, or one path.
+/// a row of the junk list: a kind of junk, or one app's share of it.
 struct JunkRow: Identifiable, Hashable {
     let id: String
     let name: String
     let detail: String
-    let section: String
     let bytes: Int64
-    let itemCount: Int
-    let url: URL?
+    /// item paths this row stands for.
+    let paths: [String]
     let children: [JunkRow]?
-    let refusal: String?
-
-    var isGroup: Bool { children != nil }
-    var leafIDs: [String] { children?.map(\.id) ?? [id] }
+    /// the app whose icon to show.
+    let owner: String?
+    /// set on rows MacCleaner left out of junk: why.
+    let doubt: String?
 }
 
+/// mole finds candidates; MacCleaner keeps only those its junk rules vouch for.
 @MainActor @Observable
 final class JunkModel {
     var state: ScanState = .idle
+    /// items that passed the rules, by path.
     var items: [JunkItem] = []
+    private(set) var kinds: [String: JunkKind] = [:]
     var rows: [JunkRow] = []
+    /// what mole listed that MacCleaner will not call junk, grouped by reason.
+    var leftOut: [JunkRow] = []
     var checked: Set<String> = []
     var scannedAt: Date?
-    var sortOrder = [KeyPathComparator(\JunkRow.bytes, order: .reverse)] {
-        didSet { rebuildRows() }
-    }
 
     private let engine = JunkEngine()
-    private let policy = SafetyPolicy()
     private var task: Task<Void, Never>?
 
     var step: String? { if case .scanning(let step) = state { step } else { nil } }
-
     var totalBytes: Int64? { items.isEmpty ? nil : items.reduce(0) { $0 + ($1.bytes ?? 0) } }
+    var leftOutBytes: Int64 { leftOut.reduce(0) { $0 + $1.bytes } }
     var checkedBytes: Int64 { items.lazy.filter { self.checked.contains($0.id) }.reduce(0) { $0 + ($1.bytes ?? 0) } }
 
     /// shows mole's last preview straight away, minus anything already gone.
@@ -56,67 +56,75 @@ final class JunkModel {
                     }
                 }
                 apply(result.items, date: result.date)
-            } catch is CancellationError {
-                state = scannedAt.map { .done($0) } ?? .idle
             } catch {
-                state = Task.isCancelled ? (scannedAt.map { .done($0) } ?? .idle) : .failed(error.localizedDescription)
+                state = Task.isCancelled || error is CancellationError ? (scannedAt.map { .done($0) } ?? .idle) : .failed(error.localizedDescription)
             }
         }
     }
 
     func stop() { task?.cancel() }
 
-    private func apply(_ items: [JunkItem], date: Date) {
-        self.items = items
+    private func apply(_ candidates: [JunkItem], date: Date) {
+        let rules = JunkRules()
+        var kept: [JunkItem] = []
+        var kinds: [String: JunkKind] = [:]
+        var doubts: [String: [JunkItem]] = [:]
+        for item in candidates {
+            switch rules.classify(item.url.standardizedFileURL.path) {
+            case .junk(let kind):
+                kept.append(item)
+                kinds[item.id] = kind
+            case .doubt(let reason):
+                doubts[reason, default: []].append(item)
+            }
+        }
+        items = kept
+        self.kinds = kinds
         scannedAt = date
         state = .done(date)
-        checked = checked.intersection(items.map(\.id))
-        rebuildRows()
-    }
-
-    func rebuildRows() {
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
-        let grouped = Dictionary(grouping: items) { "\($0.section)\u{1F}\($0.owner)" }
-        var groups: [JunkRow] = grouped.map { key, members in
-            let first = members[0]
-            var children = members.map { item in
-                JunkRow(
-                    id: item.id,
-                    name: item.url.lastPathComponent,
-                    detail: Format.location(item.url.deletingLastPathComponent(), home: home),
-                    section: item.section,
-                    bytes: item.bytes ?? 0,
-                    itemCount: item.itemCount,
-                    url: item.url,
-                    children: nil,
-                    refusal: refusal(for: item.url)
-                )
-            }
-            children.sort(using: sortOrder)
-            return JunkRow(
-                id: "group:" + key,
-                name: first.owner,
-                detail: members.count == 1 ? "1 location" : "\(members.count) locations",
-                section: first.section,
-                bytes: members.reduce(0) { $0 + ($1.bytes ?? 0) },
-                itemCount: members.reduce(0) { $0 + $1.itemCount },
-                url: nil,
-                children: children,
-                refusal: nil
-            )
+        checked = checked.intersection(kept.map(\.id))
+        rows = Self.group(kept, kinds: kinds)
+        leftOut = doubts.map { reason, members in
+            JunkRow(id: "doubt:" + reason, name: reason, detail: Format.items(members.count),
+                    bytes: members.reduce(0) { $0 + ($1.bytes ?? 0) }, paths: members.map(\.id),
+                    children: nil, owner: nil, doubt: reason)
         }
-        groups.sort(using: sortOrder)
-        rows = groups
+        .sorted { $0.bytes > $1.bytes }
     }
 
-    private func refusal(for url: URL) -> String? {
-        if case .refused(let reason) = policy.verdict(for: url) { return reason }
-        return nil
+    /// kinds of junk, each holding one row per app or tool.
+    static func group(_ items: [JunkItem], kinds: [String: JunkKind]) -> [JunkRow] {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let byKind = Dictionary(grouping: items) { kinds[$0.id] ?? .cache }
+        return byKind.map { kind, members in
+            let byOwner = Dictionary(grouping: members, by: \.owner)
+            let children = byOwner.map { owner, group -> JunkRow in
+                let bytes = group.reduce(0) { $0 + ($1.bytes ?? 0) }
+                let detail = group.count == 1
+                    ? Format.location(group[0].url.deletingLastPathComponent(), home: home)
+                    : "\(Format.count(group.count)) places"
+                return JunkRow(id: "owner:\(kind.rawValue):\(owner)", name: Icons.appName(owner) ?? owner, detail: detail,
+                               bytes: bytes, paths: group.map(\.id), children: nil, owner: owner, doubt: nil)
+            }
+            .sorted { $0.bytes > $1.bytes }
+            return JunkRow(id: "kind:" + kind.rawValue, name: kind.title, detail: kind.reason,
+                           bytes: members.reduce(0) { $0 + ($1.bytes ?? 0) }, paths: members.map(\.id),
+                           children: children, owner: nil, doubt: nil)
+        }
+        .sorted { $0.bytes > $1.bytes }
     }
 
     func checkAll(_ on: Bool) {
-        let removable = rows.flatMap { $0.children ?? [] }.filter { $0.refusal == nil }.map(\.id)
-        checked = on ? Set(removable) : []
+        checked = on ? Set(items.map(\.id)) : []
+    }
+
+    func toggle(_ paths: [String]) {
+        if paths.allSatisfy(checked.contains) { checked.subtract(paths) } else { checked.formUnion(paths) }
+    }
+
+    func state(of paths: [String]) -> Bool? {
+        let count = paths.filter(checked.contains).count
+        return count == 0 ? false : (count == paths.count ? true : nil)
     }
 
     var checkedItems: [RemovalItem] {
@@ -128,6 +136,6 @@ final class JunkModel {
         guard !paths.isEmpty else { return }
         items.removeAll { Trasher.covers(paths, $0.id) }
         checked = checked.filter { !Trasher.covers(paths, $0) }
-        rebuildRows()
+        rows = Self.group(items, kinds: kinds)
     }
 }
