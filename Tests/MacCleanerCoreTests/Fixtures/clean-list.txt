@@ -1,0 +1,24 @@
+# Mole Cleanup Preview - 2026-11-11 23:50:19
+#
+# How to protect files:
+#   /Users/*/Library/Caches/com.example.app
+#
+
+
+=== User essentials ===
+/Users/fakehome/Library/Caches/@granoladesktop-updater  # 262.9MB
+/Users/fakehome/Library/Caches/AMSDataMigratorTool  # 0B
+/Users/fakehome/Library/Caches/GeoServices  # 135.7MB, 9 items
+/Users/fakehome/Library/Caches/GeoServices/Resources  # 51.9MB, counted under /Users/fakehome/Library/Caches/GeoServices
+/Users/fakehome/Library/Logs/Claude/main.log  # 4KB
+/Users/fakehome/.Trash/old.zip  # 1.20GB
+
+=== Developer tools ===
+/Users/fakehome/.npm/_cacache  # 678.9MB, 3 items
+/Users/fakehome/.cache/uv  # size unknown
+/Users/fakehome/Library/Developer/CoreSimulator/Devices/08697CB0/data/Library/Caches  # 2.44GB
+/Users/fakehome/Notebook/round4/__pycache__  # 27.4MB, 13 items
+
+=== Apps & utilities ===
+/Users/fakehome/Library/Saved Application State/com.spotify.installer.savedState  # 12KB
+/Users/fakehome/Library/Application Support/Adobe/Common/Media Cache Files/clip.ims  # 4KB

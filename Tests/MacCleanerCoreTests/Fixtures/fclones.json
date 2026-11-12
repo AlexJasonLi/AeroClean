@@ -1,0 +1,8 @@
+{
+  "header": { "version": "0.35.0", "stats": { "group_count": 3 } },
+  "groups": [
+    { "file_len": 19381641, "file_hash": "aaa", "files": ["/Users/fakehome/Downloads/Otto (2).pdf", "/Users/fakehome/Downloads/Otto.pdf"] },
+    { "file_len": 900000000, "file_hash": "bbb", "files": ["/Users/fakehome/Movies/a.mov", "/Users/fakehome/Desktop/a.mov", "/Users/fakehome/Documents/old/a.mov"] },
+    { "file_len": 5000000, "file_hash": "ccc", "files": ["/Users/fakehome/Pictures/Photos Library.photoslibrary/originals/x.heic", "/Users/fakehome/Desktop/x.heic"] }
+  ]
+}
