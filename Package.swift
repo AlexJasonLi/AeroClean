@@ -2,21 +2,21 @@
 import PackageDescription
 
 let package = Package(
-    name: "MacCleaner",
+    name: "AeroClean",
     platforms: [.macOS(.v14)],
     products: [
-        .executable(name: "MacCleaner", targets: ["MacCleaner"]),
+        .executable(name: "AeroClean", targets: ["AeroClean"]),
     ],
     targets: [
-        .target(name: "MacCleanerCore"),
-        .target(name: "MacCleanerUI", dependencies: ["MacCleanerCore"]),
-        .executableTarget(name: "MacCleaner", dependencies: ["MacCleanerUI", "MacCleanerCore"]),
+        .target(name: "AeroCleanCore"),
+        .target(name: "AeroCleanUI", dependencies: ["AeroCleanCore"]),
+        .executableTarget(name: "AeroClean", dependencies: ["AeroCleanUI", "AeroCleanCore"]),
         // renders scenes and screens to png for design review, without a window.
-        .executableTarget(name: "Snapshots", dependencies: ["MacCleanerUI", "MacCleanerCore"]),
-        .testTarget(name: "MacCleanerUITests", dependencies: ["MacCleanerUI"]),
+        .executableTarget(name: "Snapshots", dependencies: ["AeroCleanUI", "AeroCleanCore"]),
+        .testTarget(name: "AeroCleanUITests", dependencies: ["AeroCleanUI"]),
         .testTarget(
-            name: "MacCleanerCoreTests",
-            dependencies: ["MacCleanerCore"],
+            name: "AeroCleanCoreTests",
+            dependencies: ["AeroCleanCore"],
             resources: [.copy("Fixtures")]
         ),
     ]

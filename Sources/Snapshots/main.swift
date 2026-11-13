@@ -1,6 +1,6 @@
 import Foundation
-import MacCleanerCore
-import MacCleanerUI
+import AeroCleanCore
+import AeroCleanUI
 
 // usage: Snapshots scenes <folder> | Snapshots screens <folder> | Snapshots index <path> [threads]
 let arguments = CommandLine.arguments

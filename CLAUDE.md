@@ -1,14 +1,14 @@
-# MacCleaner project rules
+# AeroClean project rules
 
 ## What the app is (set by Ali, 2026-11-11)
 
-- MacCleaner is a file cleaner and only removes. It never renames, moves elsewhere, compresses or edits files. Review features (Quick Look, Reveal in Finder, copy path) are read-only.
+- AeroClean is a file cleaner and only removes. It never renames, moves elsewhere, compresses or edits files. Review features (Quick Look, Reveal in Finder, copy path) are read-only.
 - Removal always goes to the macOS Trash first. Space is freed only by the separate Empty Trash action, which asks for confirmation and shows what it will free.
-- Native SwiftUI Mac app, source in `~/MacCleaner`.
+- Native SwiftUI Mac app, source in `~/AeroClean`.
 
 ## Junk must be junk (set by Ali, 2026-11-12)
 
-- Everything in the Junk pane must be removable without affecting anything: rebuilt automatically, downloaded again only if needed, or never read. If MacCleaner cannot vouch for an item, it is not junk.
+- Everything in the Junk pane must be removable without affecting anything: rebuilt automatically, downloaded again only if needed, or never read. If AeroClean cannot vouch for an item, it is not junk.
 - `JunkRules` decides; Mole only proposes. Unknown patterns are doubts, never junk. Doubts are shown read-only under "left out" with the reason.
 - At removal every junk item is classified again and refused if it no longer matches, if its app is running (`AppOwners` plus bundle id or name), or if it changed in the last five minutes.
 - Never junk: simulator system assets, website data (Service Worker), window state of installed apps, histories, credentials, anything outside the home folder.
@@ -26,7 +26,7 @@
 - The disk index (`FastScanner`, getattrlistbulk on 16 threads) feeds Large, Copies, Space and System. Keep it the only walker of the disk; panes read it, they do not scan.
 - Public tools where they win: Mole (`mo`, GPL-3.0) for the junk preview, fclones (MIT) to hash duplicate candidates the index found. Both from Homebrew. gdu, du, dua, pdu, dust and fd were measured and are slower than the index (README has the numbers).
 - Tools run as separate processes. Do not copy Mole source into this repo; that would put the app under the GPL.
-- Mole's own deletion commands (`mo clean` without `--dry-run`, `mo purge`, `mo installer`) are never run. Mole decides what is safe; MacCleaner moves the chosen items to the Trash itself.
+- Mole's own deletion commands (`mo clean` without `--dry-run`, `mo purge`, `mo installer`) are never run. Mole decides what is safe; AeroClean moves the chosen items to the Trash itself.
 - Design changes are reviewed with `swift run -c release Snapshots screens <folder>`, which renders every pane with real data without a window.
 
 ## Removal invariants
@@ -36,6 +36,6 @@
 - A folder that holds a media library is refused as a whole. A folder that holds a git repository may go (an old project is real cleanup), but the confirmation sheet says so. A `.git` folder on its own is never removed.
 - A duplicate is removed only while another copy of it, same size, is still on disk and not part of the same removal. The check runs at removal time, so copies removed from another pane or the Finder count.
 - After a removal, every pane drops what moved, including items inside removed folders.
-- Every removal is logged to `~/Library/Logs/MacCleaner/removals.log` with its Trash location, so it can be put back.
+- Every removal is logged to `~/Library/Logs/AeroClean/removals.log` with its Trash location, so it can be put back.
 - Tools run in their own process group; Stop and quitting the app kill the whole group.
 - Items under a running app's bundle id or name in app data are refused until the app quits.

@@ -5,15 +5,15 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleExecutable</key>
-	<string>MacCleaner</string>
+	<string>AeroClean</string>
 	<key>CFBundleIconFile</key>
 	<string>AppIcon</string>
 	<key>CFBundleIdentifier</key>
-	<string>local.maccleaner</string>
+	<string>local.aeroclean</string>
 	<key>CFBundleName</key>
-	<string>MacCleaner</string>
+	<string>AeroClean</string>
 	<key>CFBundleDisplayName</key>
-	<string>MacCleaner</string>
+	<string>AeroClean</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
@@ -29,6 +29,6 @@
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
 	<key>NSAppleEventsUsageDescription</key>
-	<string>MacCleaner asks the Finder to empty the Trash when you click Empty Trash.</string>
+	<string>AeroClean asks the Finder to empty the Trash when you click Empty Trash.</string>
 </dict>
 </plist>
